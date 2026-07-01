@@ -2,17 +2,18 @@
   plane_radar_v1.ino — LIVE ADS-B plane radar for the Freising desk device.
 
   Hardware: ESP32-C3 Super Mini + GC9A01 1.28" round display
-  Wiring:   see docs/display_wiring_guide.html (same pins as display_test_v1)
+  Wiring:   see docs/display_wiring_guide.html
 
-  Data:     https://api.adsb.lol (free, no API key)
-            + route lookup via /api/0/routeset (origin > destination)
-  Setup:    copy config.example.h to config.h, enter your Wi-Fi name+password.
+  Data:     https://api.adsb.lol   (aircraft positions, free, no key)
+            https://api.adsbdb.com (airline + route lookup by callsign)
+  Setup:    copy config.example.h to config.h, enter Wi-Fi name+password.
 
   Pages (auto-cycle):
-    1. Radar — all aircraft around home position
-    2. Nearest flight detail — FlightRadar-style card
+    1. RADAR  — CRT-style sweep, all aircraft around home
+    2. FLIGHT — FlightRadar-style card for the nearest aircraft
+    3. TRACK  — nearest aircraft's path over your area + closest approach
 
-  Libraries: Adafruit GC9A01A, ArduinoJson (install via Library Manager)
+  Libraries: Adafruit GC9A01A, ArduinoJson
 */
 
 #include <WiFi.h>
@@ -25,7 +26,7 @@
 #include "config.h"
 
 #ifndef PAGE_INTERVAL_MS
-#define PAGE_INTERVAL_MS 10000        // how long each page is shown
+#define PAGE_INTERVAL_MS 10000
 #endif
 
 // ---------- Display ----------
@@ -37,97 +38,133 @@
 
 Adafruit_GC9A01A tft(TFT_CS, TFT_DC, TFT_RST);
 
-// Colors
-#define C_BG      tft.color565(0, 8, 24)
-#define C_RING    tft.color565(0, 90, 50)
-#define C_CROSS   tft.color565(0, 60, 35)
-#define C_TEXT    GC9A01A_WHITE
-#define C_PLANE   GC9A01A_RED
-#define C_NEAR    GC9A01A_YELLOW
-#define C_INFO    GC9A01A_CYAN
-#define C_DIM     tft.color565(90, 100, 110)
-#define C_GREEN   GC9A01A_GREEN
+// ---------- Glass-cockpit palette (midnight navy / cyan / amber) ----------
+#define C_BG      tft.color565(2, 4, 14)       // midnight navy
+#define C_GRID    tft.color565(44, 76, 130)    // steel blue grid
+#define C_GRIDDIM tft.color565(16, 28, 58)     // faint grid
+#define C_BRIGHT  tft.color565(0, 220, 255)    // cyan targets
+#define C_SWEEP   tft.color565(0, 110, 190)    // sweep ring
+#define C_AMBER   tft.color565(255, 176, 0)    // nearest / highlights
+#define C_CYAN    tft.color565(120, 230, 255)  // routes / info
+#define C_WHITE   GC9A01A_WHITE
+#define C_DIM     tft.color565(120, 130, 145)
+#define C_RED     tft.color565(255, 64, 48)
 #define C_ORANGE  GC9A01A_ORANGE
 
-// ---------- Aircraft data ----------
+// ---------- Aircraft ----------
 struct Aircraft {
-  char  flight[10];   // callsign
-  char  reg[10];      // registration e.g. D-AIZQ
-  char  typ[6];       // ICAO type e.g. A320
-  char  sqk[6];       // squawk
-  char  op[28];       // operator / aircraft description
-  float distKm;
-  float bearingDeg;
-  float trackDeg;
-  int   altFt;
-  int   gsKt;
-  int   vrFpm;        // vertical rate ft/min
+  char  flight[10], reg[10], typ[6], sqk[6], op[28];
+  float distKm, bearingDeg, trackDeg;
+  float eastKm, northKm;                 // position relative to home
+  int   altFt, gsKt, vrFpm;
 };
 #define MAX_AC 30
 Aircraft planes[MAX_AC];
 int      planeCount = 0;
 
-uint32_t lastFetch      = 0;
-uint32_t lastPageSwitch = 0;
-int      failCount      = 0;
-uint8_t  page           = 0;          // 0 = radar, 1 = nearest detail
+uint32_t lastFetch = 0, lastPageSwitch = 0;
+int      failCount = 0;
+uint8_t  page      = 0;                  // 0 radar, 1 detail, 2 track
+const uint32_t pageDur[3] = {15000, 12000, 12000};
 
-// route cache (one extra API call, only when nearest callsign changes)
-char routeFor[10]     = "";
-char routeStr[24]     = "";   // "MUC > VNO"
-char routeCities[30]  = "";   // "Munich > Vilnius"
-char routeAirline[24] = "";   // "Air Baltic"
+// route cache
+char routeFor[10] = "", routeStr[24] = "", routeCities[30] = "", routeAirline[24] = "";
 
-// ---------- Helpers ----------
+// track history of nearest aircraft
+#define TRAIL_MAX 20
+float  trailE[TRAIL_MAX], trailN[TRAIL_MAX];
+int    trailLen = 0;
+char   trailFor[10] = "";
+
+// continuous sonar sweep state (radar page)
+int      sweepR = 8;
+uint32_t lastSweepStep = 0;
+
+// remembered dynamic pixels on radar page (for low-flicker erase)
+struct Blip { int16_t x, y; uint8_t r; };
+Blip prevBlips[MAX_AC + 1];
+int  prevBlipCount = 0;
+
+// ---------- Math helpers ----------
 float deg2rad(float d) { return d * 0.017453293f; }
 
-float haversineKm(float lat1, float lon1, float lat2, float lon2) {
-  float dLat = deg2rad(lat2 - lat1);
-  float dLon = deg2rad(lon2 - lon1);
-  float a = sinf(dLat / 2) * sinf(dLat / 2) +
-            cosf(deg2rad(lat1)) * cosf(deg2rad(lat2)) *
-            sinf(dLon / 2) * sinf(dLon / 2);
+float haversineKm(float la1, float lo1, float la2, float lo2) {
+  float dLa = deg2rad(la2 - la1), dLo = deg2rad(lo2 - lo1);
+  float a = sinf(dLa/2)*sinf(dLa/2) +
+            cosf(deg2rad(la1))*cosf(deg2rad(la2))*sinf(dLo/2)*sinf(dLo/2);
   return 6371.0f * 2 * atan2f(sqrtf(a), sqrtf(1 - a));
 }
 
-float bearingDegF(float lat1, float lon1, float lat2, float lon2) {
-  float dLon = deg2rad(lon2 - lon1);
-  float y = sinf(dLon) * cosf(deg2rad(lat2));
-  float x = cosf(deg2rad(lat1)) * sinf(deg2rad(lat2)) -
-            sinf(deg2rad(lat1)) * cosf(deg2rad(lat2)) * cosf(dLon);
-  float b = atan2f(y, x) * 57.29578f;
-  return fmodf(b + 360.0f, 360.0f);
+float bearingDegF(float la1, float lo1, float la2, float lo2) {
+  float dLo = deg2rad(lo2 - lo1);
+  float y = sinf(dLo) * cosf(deg2rad(la2));
+  float x = cosf(deg2rad(la1))*sinf(deg2rad(la2)) -
+            sinf(deg2rad(la1))*cosf(deg2rad(la2))*cosf(dLo);
+  return fmodf(atan2f(y, x) * 57.29578f + 360.0f, 360.0f);
 }
 
 const char *compass8(float deg) {
-  static const char *names[8] = {"N", "NE", "E", "SE", "S", "SW", "W", "NW"};
-  return names[((int)((deg + 22.5f) / 45.0f)) % 8];
+  static const char *n[8] = {"N","NE","E","SE","S","SW","W","NW"};
+  return n[((int)((deg + 22.5f) / 45.0f)) % 8];
 }
 
 void centerText(const char *s, int y, uint8_t size, uint16_t color) {
   tft.setTextSize(size);
   tft.setTextColor(color);
-  int w = strlen(s) * 6 * size;
-  tft.setCursor(120 - w / 2, y);
+  tft.setCursor(120 - (int)strlen(s) * 3 * size, y);
   tft.print(s);
 }
 
+// ---------- Shared chrome ----------
+void drawBezel() {
+  tft.drawCircle(120, 120, 119, C_GRID);
+  tft.drawCircle(120, 120, 118, C_GRIDDIM);
+  for (int a = 0; a < 360; a += 10) {            // tick marks
+    float r  = deg2rad((float)a);
+    float s  = sinf(r), c = cosf(r);
+    int   l  = (a % 90 == 0) ? 9 : (a % 30 == 0 ? 6 : 3);
+    tft.drawLine(120 + (int)(s*118), 120 - (int)(c*118),
+                 120 + (int)(s*(118-l)), 120 - (int)(c*(118-l)),
+                 (a % 30 == 0) ? C_GRID : C_GRIDDIM);
+  }
+  tft.setTextSize(1);
+  tft.setTextColor(C_BRIGHT);
+  tft.setCursor(117, 14);  tft.print("N");
+  tft.setTextColor(C_GRID);
+  tft.setCursor(117, 219); tft.print("S");
+  tft.setCursor(14, 117);  tft.print("W");
+  tft.setCursor(220, 117); tft.print("E");
+}
+
 void pageDots() {
-  tft.fillCircle(113, 222, 3, page == 0 ? C_TEXT : C_DIM);
-  tft.fillCircle(127, 222, 3, page == 1 ? C_TEXT : C_DIM);
+  for (int i = 0; i < 3; i++)
+    tft.fillCircle(108 + i * 12, 228, 2, i == page ? C_BRIGHT : C_GRIDDIM);
 }
 
-// ---------- Screens ----------
-void splash(const char *line1, const char *line2, uint16_t color) {
+// ---------- Boot splash ----------
+void splash(const char *l1, const char *l2, uint16_t color) {
   tft.fillScreen(C_BG);
-  tft.drawCircle(120, 120, 118, C_RING);
-  centerText("PLANE RADAR", 90, 2, C_NEAR);
-  centerText(line1, 116, 1, C_DIM);
-  centerText(line2, 130, 1, color);
+  drawBezel();
+  centerText("PLANE RADAR", 88, 2, C_AMBER);
+  centerText("F R E I S I N G", 108, 1, C_GRID);
+  centerText(l1, 130, 1, C_DIM);
+  centerText(l2, 144, 1, color);
 }
 
+void bootAnimation() {
+  tft.fillScreen(C_BG);
+  for (int r = 8; r <= 116; r += 4) {
+    tft.drawCircle(120, 120, r, C_SWEEP);
+    if (r > 12) tft.drawCircle(120, 120, r - 4, C_BG);
+    delay(14);
+  }
+  tft.drawCircle(120, 120, 112, C_BG);
+  splash("", "", C_DIM);
+}
+
+// ---------- WiFi ----------
 void connectWifi() {
-  splash("connecting to", WIFI_SSID, C_INFO);
+  splash("connecting to", WIFI_SSID, C_CYAN);
   WiFi.mode(WIFI_STA);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
   uint32_t start = millis();
@@ -137,11 +174,10 @@ void connectWifi() {
   }
   if (WiFi.status() == WL_CONNECTED) {
     Serial.printf("\nWiFi OK, IP: %s\n", WiFi.localIP().toString().c_str());
-    splash("wifi connected", WiFi.localIP().toString().c_str(), C_GREEN);
-    delay(1200);
+    splash("wifi connected", WiFi.localIP().toString().c_str(), C_BRIGHT);
+    delay(1000);
   } else {
-    splash("WIFI FAILED", "check config.h + reboot", GC9A01A_RED);
-    Serial.println("\nWiFi failed. Check credentials in config.h");
+    splash("WIFI FAILED", "check config.h + reboot", C_RED);
     while (true) delay(1000);
   }
 }
@@ -164,48 +200,28 @@ bool fetchPlanes() {
   char url[120];
   snprintf(url, sizeof(url), "https://api.adsb.lol/v2/point/%.4f/%.4f/%d",
            (double)HOME_LAT, (double)HOME_LON, radiusNm);
-
   if (!http.begin(client, url)) return false;
-  int code = http.GET();
-  if (code != 200) {
-    Serial.printf("HTTP error: %d\n", code);
-    http.end();
-    return false;
-  }
+  if (http.GET() != 200) { http.end(); return false; }
 
   JsonDocument filter;
-  filter["ac"][0]["flight"]    = true;
-  filter["ac"][0]["lat"]       = true;
-  filter["ac"][0]["lon"]       = true;
-  filter["ac"][0]["alt_baro"]  = true;
-  filter["ac"][0]["gs"]        = true;
-  filter["ac"][0]["track"]     = true;
-  filter["ac"][0]["r"]         = true;
-  filter["ac"][0]["t"]         = true;
-  filter["ac"][0]["squawk"]    = true;
-  filter["ac"][0]["baro_rate"] = true;
-  filter["ac"][0]["ownOp"]     = true;
-  filter["ac"][0]["desc"]      = true;
+  JsonObject f = filter["ac"].add<JsonObject>();
+  f["flight"] = f["lat"] = f["lon"] = f["alt_baro"] = f["gs"] = f["track"] = true;
+  f["r"] = f["t"] = f["squawk"] = f["baro_rate"] = f["ownOp"] = f["desc"] = true;
 
   String payload = http.getString();
   http.end();
-  Serial.printf("Payload size: %u bytes, free heap: %u\n",
-                payload.length(), ESP.getFreeHeap());
 
   JsonDocument doc;
   DeserializationError err =
       deserializeJson(doc, payload, DeserializationOption::Filter(filter));
   payload = String();
-  if (err) {
-    Serial.printf("JSON error: %s\n", err.c_str());
-    return false;
-  }
+  if (err) { Serial.printf("JSON error: %s\n", err.c_str()); return false; }
 
   planeCount = 0;
   for (JsonObject ac : doc["ac"].as<JsonArray>()) {
     if (planeCount >= MAX_AC) break;
     if (!ac["lat"].is<float>() || !ac["lon"].is<float>()) continue;
-    if (ac["alt_baro"].is<const char *>()) continue;   // on ground
+    if (ac["alt_baro"].is<const char *>()) continue;
 
     Aircraft &p = planes[planeCount];
     copyStr(p.flight, sizeof(p.flight), ac["flight"] | "");
@@ -220,6 +236,8 @@ bool fetchPlanes() {
     float lat = ac["lat"], lon = ac["lon"];
     p.distKm     = haversineKm(HOME_LAT, HOME_LON, lat, lon);
     p.bearingDeg = bearingDegF(HOME_LAT, HOME_LON, lat, lon);
+    p.eastKm     = (lon - HOME_LON) * 111.32f * cosf(deg2rad(lat));
+    p.northKm    = (lat - HOME_LAT) * 110.57f;
     p.trackDeg   = ac["track"] | 0.0f;
     p.altFt      = ac["alt_baro"] | 0;
     p.gsKt       = (int)(ac["gs"] | 0.0f);
@@ -233,16 +251,31 @@ bool fetchPlanes() {
         Aircraft t = planes[i]; planes[i] = planes[j]; planes[j] = t;
       }
 
-  Serial.printf("Aircraft airborne nearby: %d\n", planeCount);
+  // update trail of nearest aircraft
+  if (planeCount > 0) {
+    if (strcmp(trailFor, planes[0].flight) != 0) {
+      strcpy(trailFor, planes[0].flight);
+      trailLen = 0;
+    }
+    if (trailLen == TRAIL_MAX) {
+      memmove(trailE, trailE + 1, sizeof(float) * (TRAIL_MAX - 1));
+      memmove(trailN, trailN + 1, sizeof(float) * (TRAIL_MAX - 1));
+      trailLen--;
+    }
+    trailE[trailLen] = planes[0].eastKm;
+    trailN[trailLen] = planes[0].northKm;
+    trailLen++;
+  }
+
+  Serial.printf("Aircraft: %d, heap: %u\n", planeCount, ESP.getFreeHeap());
   return true;
 }
 
-// ---------- Route lookup (adsbdb.com: airline + origin > destination) ----------
+// ---------- Route lookup ----------
 void fetchRoute(const char *callsign) {
-  if (strcmp(routeFor, callsign) == 0) return;    // cached
+  if (strcmp(routeFor, callsign) == 0) return;
   strcpy(routeFor, callsign);
   routeStr[0] = routeCities[0] = routeAirline[0] = 0;
-
   if (callsign[0] == '-' || callsign[0] == 0) return;
 
   WiFiClientSecure client;
@@ -252,35 +285,30 @@ void fetchRoute(const char *callsign) {
   char url[80];
   snprintf(url, sizeof(url), "https://api.adsbdb.com/v0/callsign/%s", callsign);
   if (!http.begin(client, url)) return;
-
-  int code = http.GET();
-  if (code == 200) {
+  if (http.GET() == 200) {
     JsonDocument doc;
     if (deserializeJson(doc, http.getString()) == DeserializationError::Ok) {
       JsonObject fr = doc["response"]["flightroute"];
       if (!fr.isNull()) {
-        const char *o  = fr["origin"]["iata_code"]        | "";
-        const char *d  = fr["destination"]["iata_code"]   | "";
-        const char *oc = fr["origin"]["municipality"]     | "";
-        const char *dc = fr["destination"]["municipality"]| "";
-        const char *al = fr["airline"]["name"]            | "";
+        const char *o  = fr["origin"]["iata_code"]         | "";
+        const char *d  = fr["destination"]["iata_code"]    | "";
+        const char *oc = fr["origin"]["municipality"]      | "";
+        const char *dc = fr["destination"]["municipality"] | "";
+        strncpy(routeAirline, fr["airline"]["name"] | "", sizeof(routeAirline)-1);
         if (o[0] && d[0]) {
           snprintf(routeStr, sizeof(routeStr), "%s > %s", o, d);
           snprintf(routeCities, sizeof(routeCities), "%.12s > %.12s", oc, dc);
         }
-        strncpy(routeAirline, al, sizeof(routeAirline) - 1);
       }
     }
   }
   http.end();
-  Serial.printf("Route for %s: '%s' (%s, %s)\n",
-                callsign, routeStr, routeCities, routeAirline);
+  Serial.printf("Route %s: '%s' %s\n", callsign, routeStr, routeAirline);
 }
 
-// ---------- Page 1: radar ----------
+// ---------- Drawing primitives ----------
 void planeTriangle(int cx, int cy, float trackDeg, int size, uint16_t color) {
-  float t = deg2rad(trackDeg);
-  float ct = cosf(t), st = sinf(t);
+  float t = deg2rad(trackDeg), ct = cosf(t), st = sinf(t);
   float px[3] = {0, -0.7f * size, 0.7f * size};
   float py[3] = {(float)-size, 0.8f * size, 0.8f * size};
   int x[3], y[3];
@@ -289,145 +317,289 @@ void planeTriangle(int cx, int cy, float trackDeg, int size, uint16_t color) {
     y[i] = cy + (int)(px[i] * st + py[i] * ct);
   }
   tft.fillTriangle(x[0], y[0], x[1], y[1], x[2], y[2], color);
+  tft.drawTriangle(x[0], y[0], x[1], y[1], x[2], y[2], C_BG);
 }
 
-void drawRadar() {
+void dashedLine(int x0, int y0, float dirDeg, int len, uint16_t color) {
+  float t = deg2rad(dirDeg), s = sinf(t), c = cosf(t);
+  for (int d = 0; d < len; d += 8) {
+    int xa = x0 + (int)(s * d),       ya = y0 - (int)(c * d);
+    int xb = x0 + (int)(s * (d + 4)), yb = y0 - (int)(c * (d + 4));
+    if ((xa-120)*(xa-120) + (ya-120)*(ya-120) > 108*108) break;
+    tft.drawLine(xa, ya, xb, yb, color);
+  }
+}
+
+// ---------- Page 1: RADAR ----------
+void radarGrid() {
+  tft.drawCircle(120, 120, 36,  C_GRIDDIM);
+  tft.drawCircle(120, 120, 72,  C_GRIDDIM);
+  tft.drawCircle(120, 120, 108, C_GRID);
+  tft.drawLine(120, 14, 120, 226, C_GRIDDIM);
+  tft.drawLine(14, 120, 226, 120, C_GRIDDIM);
+  tft.fillCircle(120, 120, 2, C_BRIGHT);
+  tft.setTextSize(1);
+  tft.setTextColor(C_GRID);
+  tft.setCursor(158, 124); tft.printf("%.0f", (double)(RADAR_RANGE_KM * 2 / 3));
+  tft.setCursor(194, 124); tft.print("km");
+}
+
+void radarStatic() {
   tft.fillScreen(C_BG);
-  tft.drawLine(120, 10, 120, 230, C_CROSS);
-  tft.drawLine(10, 120, 230, 120, C_CROSS);
-  tft.drawCircle(120, 120, 37,  C_RING);
-  tft.drawCircle(120, 120, 74,  C_RING);
-  tft.drawCircle(120, 120, 110, C_RING);
-  tft.fillCircle(120, 120, 2, C_TEXT);
+  drawBezel();
+  radarGrid();
+  pageDots();
+}
 
-  tft.setTextSize(1); tft.setTextColor(C_TEXT);
-  tft.setCursor(117, 3);   tft.print("N");
-  tft.setCursor(117, 231); tft.print("S");
-  tft.setCursor(2, 117);   tft.print("W");
-  tft.setCursor(232, 117); tft.print("E");
-  tft.setTextColor(C_DIM);
-  tft.setCursor(178, 124);
-  tft.printf("%.0fkm", (double)(RADAR_RANGE_KM * 2 / 3));
+void eraseBlips() {
+  for (int i = 0; i < prevBlipCount; i++)
+    tft.fillCircle(prevBlips[i].x, prevBlips[i].y, prevBlips[i].r, C_BG);
+  prevBlipCount = 0;
+  tft.fillRect(36, 146, 168, 38, C_BG);   // nearest info block
+  tft.fillRect(78, 60, 84, 10, C_BG);     // plane count
+}
 
+void radarPaint(bool record) {
+  radarGrid();                             // heal grid
+
+  if (record) prevBlipCount = 0;
   for (int i = planeCount - 1; i >= 0; i--) {
     Aircraft &p = planes[i];
     float b = deg2rad(p.bearingDeg);
+    int x, y; uint8_t r;
     if (p.distKm <= RADAR_RANGE_KM) {
-      float r = (p.distKm / RADAR_RANGE_KM) * 110.0f;
-      int x = 120 + (int)(sinf(b) * r);
-      int y = 120 - (int)(cosf(b) * r);
-      planeTriangle(x, y, p.trackDeg, 6, i == 0 ? C_NEAR : C_PLANE);
+      float rr = (p.distKm / RADAR_RANGE_KM) * 106.0f;
+      x = 120 + (int)(sinf(b) * rr);
+      y = 120 - (int)(cosf(b) * rr);
+      planeTriangle(x, y, p.trackDeg, 6, i == 0 ? C_AMBER : C_BRIGHT);
+      r = 9;
     } else {
-      int x = 120 + (int)(sinf(b) * 117.0f);
-      int y = 120 - (int)(cosf(b) * 117.0f);
-      tft.fillCircle(x, y, 2, C_PLANE);
+      // beyond-range contact: bold marker at the rim
+      x = 120 + (int)(sinf(b) * 111.0f);
+      y = 120 - (int)(cosf(b) * 111.0f);
+      tft.fillCircle(x, y, 3, C_RED);
+      tft.drawCircle(x, y, 4, C_BG);
+      r = 5;
+    }
+    if (record && prevBlipCount < MAX_AC + 1) {
+      prevBlips[prevBlipCount].x = x;
+      prevBlips[prevBlipCount].y = y;
+      prevBlips[prevBlipCount].r = r;
+      prevBlipCount++;
     }
   }
 
   if (planeCount > 0) {
     Aircraft &n = planes[0];
-    centerText(n.flight, 150, 2, C_NEAR);
+    centerText(n.flight, 148, 2, C_AMBER);
     char info[48];
-    snprintf(info, sizeof(info), "%.1fkm  %dm  %dkm/h",
-             (double)n.distKm, (int)(n.altFt * 0.3048f), (int)(n.gsKt * 1.852f));
-    centerText(info, 172, 1, C_INFO);
+    snprintf(info, sizeof(info), "%.1fkm %s  %dm  %dkm/h",
+             (double)n.distKm, compass8(n.bearingDeg),
+             (int)(n.altFt * 0.3048f), (int)(n.gsKt * 1.852f));
+    centerText(info, 170, 1, C_CYAN);
   } else {
-    centerText("no aircraft", 160, 1, C_DIM);
+    centerText("scanning...", 160, 1, C_DIM);
   }
+  char st[20];
+  snprintf(st, sizeof(st), "%d CONTACTS", planeCount);
+  centerText(st, 61, 1, C_GRID);
+}
 
-  char st[24];
-  snprintf(st, sizeof(st), "%d planes", planeCount);
-  centerText(st, 68, 1, C_DIM);
+void radarDynamic() {
+  eraseBlips();
+  radarPaint(true);
+}
+
+// continuous sonar sweep: one ring step per call, heals screen on wrap
+void sweepStep() {
+  tft.drawCircle(120, 120, sweepR, C_SWEEP);
+  if (sweepR > 10) tft.drawCircle(120, 120, sweepR - 4, C_BG);
+  sweepR += 4;
+  if (sweepR > 104) {
+    tft.drawCircle(120, 120, sweepR - 4, C_BG);
+    tft.drawCircle(120, 120, sweepR - 8, C_BG);
+    sweepR = 8;
+    radarPaint(false);                     // repaint everything the ring crossed
+  }
+}
+
+// ---------- Page 2: FLIGHT detail ----------
+void detailStatic() {
+  tft.fillScreen(C_BG);
+  drawBezel();
+  centerText("NEAREST FLIGHT", 26, 1, C_GRID);
+  tft.drawFastHLine(52, 122, 136, C_GRIDDIM);
   pageDots();
 }
 
-// ---------- Page 2: nearest flight detail ----------
-void statRow(int y, const char *lab1, const char *val1,
-                    const char *lab2, const char *val2) {
+void statRow(int y, const char *l1, const char *v1,
+             const char *l2, const char *v2, uint16_t vc1, uint16_t vc2) {
   tft.setTextSize(1);
-  tft.setTextColor(C_DIM);  tft.setCursor(44, y);  tft.print(lab1);
-  tft.setTextColor(C_TEXT); tft.setCursor(76, y);  tft.print(val1);
-  tft.setTextColor(C_DIM);  tft.setCursor(134, y); tft.print(lab2);
-  tft.setTextColor(C_TEXT); tft.setCursor(166, y); tft.print(val2);
+  tft.setTextColor(C_GRID);  tft.setCursor(44, y);  tft.print(l1);
+  tft.setTextColor(vc1);     tft.setCursor(74, y);  tft.print(v1);
+  tft.setTextColor(C_GRID);  tft.setCursor(132, y); tft.print(l2);
+  tft.setTextColor(vc2);     tft.setCursor(160, y); tft.print(v2);
 }
 
-void drawDetail() {
-  tft.fillScreen(C_BG);
-  tft.drawCircle(120, 120, 118, C_RING);
+void detailDynamic() {
+  tft.fillRect(28, 38, 184, 82, C_BG);     // header block
+  tft.fillRect(28, 128, 184, 64, C_BG);    // stats block
+  tft.fillRect(52, 196, 136, 16, C_BG);    // look strip
 
   if (planeCount == 0) {
-    centerText("NEAREST FLIGHT", 60, 1, C_DIM);
-    centerText("no aircraft", 115, 2, C_DIM);
-    pageDots();
+    centerText("no contacts", 110, 2, C_DIM);
     return;
   }
-
   Aircraft &n = planes[0];
-  centerText("NEAREST FLIGHT", 26, 1, C_DIM);
-  centerText(n.flight, 42, 3, C_NEAR);
 
-  // route (origin > destination) + cities
+  centerText(n.flight, 40, 3, C_AMBER);
   if (routeStr[0]) {
-    centerText(routeStr, 70, 2, C_INFO);
+    centerText(routeStr, 70, 2, C_CYAN);
     if (routeCities[0]) centerText(routeCities, 88, 1, C_DIM);
   } else {
     centerText("route unknown", 76, 1, C_DIM);
   }
-
-  // airline (fallback: operator from ADS-B) + type/registration
   const char *who = routeAirline[0] ? routeAirline : n.op;
-  if (who[0]) centerText(who, 100, 1, C_TEXT);
+  if (who[0]) centerText(who, 100, 1, C_WHITE);
   char line[32];
   if (n.typ[0] || n.reg[0]) {
     snprintf(line, sizeof(line), "%s  %s", n.typ, n.reg);
-    centerText(line, 112, 1, C_DIM);
+    centerText(line, 111, 1, C_GRID);
   }
 
-  tft.drawFastHLine(48, 124, 144, C_CROSS);
-
-  // stats grid
   char v1[16], v2[16];
+  uint16_t distC = n.distKm < 5 ? C_RED : (n.distKm < 12 ? C_AMBER : C_WHITE);
   snprintf(v1, sizeof(v1), "%.1f km", (double)n.distKm);
   snprintf(v2, sizeof(v2), "%.0f %s", (double)n.bearingDeg, compass8(n.bearingDeg));
-  statRow(134, "DIST", v1, "BRG", v2);
+  statRow(132, "DIST", v1, "BRG", v2, distC, C_WHITE);
 
-  const char *trend = n.vrFpm > 300 ? "+" : (n.vrFpm < -300 ? "-" : "=");
-  snprintf(v1, sizeof(v1), "%dm %s", (int)(n.altFt * 0.3048f), trend);
-  snprintf(v2, sizeof(v2), "%d m/s", (int)(n.vrFpm * 0.00508f));
-  statRow(150, "ALT", v1, "V/S", v2);
+  uint16_t vsC = n.vrFpm > 300 ? C_BRIGHT : (n.vrFpm < -300 ? C_AMBER : C_WHITE);
+  snprintf(v1, sizeof(v1), "%d m", (int)(n.altFt * 0.3048f));
+  snprintf(v2, sizeof(v2), "%+d m/s", (int)(n.vrFpm * 0.00508f));
+  statRow(148, "ALT", v1, "V/S", v2, C_WHITE, vsC);
 
-  snprintf(v1, sizeof(v1), "%dkm/h", (int)(n.gsKt * 1.852f));
+  snprintf(v1, sizeof(v1), "%d km/h", (int)(n.gsKt * 1.852f));
   snprintf(v2, sizeof(v2), "%.0f %s", (double)n.trackDeg, compass8(n.trackDeg));
-  statRow(166, "SPD", v1, "TRK", v2);
+  statRow(164, "SPD", v1, "TRK", v2, C_WHITE, C_WHITE);
 
   snprintf(v1, sizeof(v1), "%s", n.sqk[0] ? n.sqk : "----");
-  snprintf(v2, sizeof(v2), "%d nearby", planeCount);
-  statRow(182, "SQK", v1, "AC", v2);
+  snprintf(v2, sizeof(v2), "%d", planeCount);
+  statRow(180, "SQK", v1, "AC", v2, C_WHITE, C_WHITE);
 
-  // little arrow showing where to look (bearing) at top-right of card
-  float b = deg2rad(planes[0].bearingDeg);
-  int ax = 120 + (int)(sinf(b) * 104.0f);
-  int ay = 120 - (int)(cosf(b) * 104.0f);
-  tft.fillCircle(ax, ay, 4, C_NEAR);
+  // "where to look" strip — small arrow + text, clear of other content
+  char look[20];
+  snprintf(look, sizeof(look), "LOOK %s", compass8(n.bearingDeg));
+  centerText(look, 200, 1, C_AMBER);
+  float b = deg2rad(n.bearingDeg);
+  int ax = 120 - (int)(strlen(look) * 3) - 12, ay = 203;
+  tft.fillTriangle(ax + (int)(sinf(b)*6),        ay - (int)(cosf(b)*6),
+                   ax + (int)(sinf(b+2.6f)*5),   ay - (int)(cosf(b+2.6f)*5),
+                   ax + (int)(sinf(b-2.6f)*5),   ay - (int)(cosf(b-2.6f)*5), C_AMBER);
+}
 
+// ---------- Page 3: TRACK ----------
+void trackStatic() {
+  tft.fillScreen(C_BG);
+  drawBezel();
+  centerText("FLIGHT TRACK", 26, 1, C_GRID);
   pageDots();
 }
 
-void drawPage() {
-  if (page == 0) drawRadar();
-  else           drawDetail();
+void trackDynamic() {
+  tft.fillRect(24, 36, 192, 180, C_BG);
+
+  if (planeCount == 0) {
+    centerText("no contacts", 110, 2, C_DIM);
+    return;
+  }
+  Aircraft &n = planes[0];
+
+  // zoom: keep plane + home comfortably in view
+  float range = n.distKm * 1.5f;
+  if (range < 8) range = 8;
+  float scale = 86.0f / range;             // px per km
+
+  // faint range rings
+  tft.drawCircle(120, 126, 43, C_GRIDDIM);
+  tft.drawCircle(120, 126, 86, C_GRIDDIM);
+  tft.setTextSize(1); tft.setTextColor(C_GRID);
+  tft.setCursor(166, 130); tft.printf("%.0fkm", (double)range);
+
+  // home marker
+  tft.fillCircle(120, 126, 3, C_CYAN);
+  tft.drawCircle(120, 126, 6, C_CYAN);
+  tft.setTextColor(C_CYAN);
+  tft.setCursor(111, 136); tft.print("YOU");
+
+  // trail (older = darker)
+  for (int i = 0; i < trailLen; i++) {
+    int x = 120 + (int)(trailE[i] * scale);
+    int y = 126 - (int)(trailN[i] * scale);
+    if ((x-120)*(x-120) + (y-126)*(y-126) > 88*88) continue;
+    uint16_t c = (i > trailLen - 4) ? C_BRIGHT : (i > trailLen - 10 ? C_SWEEP : C_GRIDDIM);
+    tft.fillCircle(x, y, (i == trailLen - 1) ? 2 : 1, c);
+  }
+
+  // plane + projected course
+  int px = 120 + (int)(n.eastKm * scale);
+  int py = 126 - (int)(n.northKm * scale);
+  bool visible = (px-120)*(px-120) + (py-126)*(py-126) <= 88*88;
+  if (visible) {
+    dashedLine(px, py, n.trackDeg, 150, C_GRID);            // ahead
+    dashedLine(px, py, n.trackDeg + 180.0f, 150, C_GRIDDIM); // behind
+    planeTriangle(px, py, n.trackDeg, 7, C_AMBER);
+  }
+
+  centerText(n.flight, 40, 2, C_AMBER);
+
+  // closest point of approach (CPA)
+  float spdKms = n.gsKt * 1.852f / 3600.0f;             // km per second
+  float vx = sinf(deg2rad(n.trackDeg)) * spdKms;
+  float vy = cosf(deg2rad(n.trackDeg)) * spdKms;
+  char cpa[36];
+  float v2 = vx * vx + vy * vy;
+  if (v2 > 1e-8f) {
+    float tSec = -(n.eastKm * vx + n.northKm * vy) / v2;
+    if (tSec > 0 && tSec < 3600) {
+      float ce = n.eastKm + vx * tSec, cn = n.northKm + vy * tSec;
+      float cd = sqrtf(ce * ce + cn * cn);
+      snprintf(cpa, sizeof(cpa), "closest %.1fkm in %d:%02d",
+               (double)cd, (int)tSec / 60, (int)tSec % 60);
+    } else {
+      snprintf(cpa, sizeof(cpa), "moving away  %.1fkm", (double)n.distKm);
+    }
+  } else {
+    snprintf(cpa, sizeof(cpa), "%.1fkm", (double)n.distKm);
+  }
+  centerText(cpa, 200, 1, C_CYAN);
+}
+
+// ---------- Page management ----------
+void drawPageFull() {
+  prevBlipCount = 0;
+  sweepR = 8;
+  if (page == 0) { radarStatic(); radarDynamic(); }
+  else if (page == 1) { detailStatic(); detailDynamic(); }
+  else { trackStatic(); trackDynamic(); }
+}
+
+void drawPageUpdate() {
+  if (page == 0) radarDynamic();
+  else if (page == 1) detailDynamic();
+  else trackDynamic();
 }
 
 // ---------- Main ----------
 void setup() {
   Serial.begin(115200);
   delay(300);
-  Serial.println("Plane Radar v1 (2 pages) booting...");
+  Serial.println("Plane Radar v2 (3 pages, CRT theme) booting...");
   SPI.begin(TFT_SCLK, -1, TFT_MOSI, TFT_CS);
   tft.begin();
   tft.setRotation(0);
+  bootAnimation();
   connectWifi();
-  splash("fetching", "aircraft data...", C_INFO);
+  splash("fetching", "aircraft data...", C_CYAN);
   lastPageSwitch = millis();
 }
 
@@ -436,29 +608,36 @@ void loop() {
     splash("wifi lost", "reconnecting...", C_ORANGE);
     WiFi.reconnect();
     delay(4000);
+    drawPageFull();
     return;
   }
 
   uint32_t now = millis();
 
   if (now - lastFetch >= FETCH_INTERVAL_MS || lastFetch == 0) {
+    bool first = (lastFetch == 0);
     lastFetch = now;
     if (fetchPlanes()) {
       failCount = 0;
-      if (page == 1 && planeCount > 0) fetchRoute(planes[0].flight);
-      drawPage();
-    } else {
-      failCount++;
-      if (failCount >= 3) splash("API error", "retrying...", C_ORANGE);
+      if (page >= 1 && planeCount > 0) fetchRoute(planes[0].flight);
+      if (first) drawPageFull(); else drawPageUpdate();
+    } else if (++failCount >= 3) {
+      splash("API error", "retrying...", C_ORANGE);
     }
   }
 
-  if (now - lastPageSwitch >= PAGE_INTERVAL_MS) {
-    lastPageSwitch = now;
-    page ^= 1;
-    if (page == 1 && planeCount > 0) fetchRoute(planes[0].flight);
-    drawPage();
+  if (page == 0 && now - lastSweepStep >= 35) {
+    lastSweepStep = now;
+    sweepStep();
   }
 
-  delay(50);
+  if (now - lastPageSwitch >= pageDur[page]) {
+    lastPageSwitch = now;
+    page = (page + 1) % 3;
+    if (page >= 1 && planeCount == 0) page = 0;   // nothing to detail
+    if (page >= 1 && planeCount > 0) fetchRoute(planes[0].flight);
+    drawPageFull();
+  }
+
+  delay(40);
 }
