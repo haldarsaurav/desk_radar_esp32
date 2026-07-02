@@ -10,13 +10,17 @@
   Setup:    copy config.example.h to config.h, enter Wi-Fi name+password.
 
   Pages (auto-cycle; rare/emergency traffic force-jumps to SPOTTER):
-    1. RADAR   — rotating beam, all airborne aircraft around home
-    2. FLIGHT  — FlightRadar-style card for the nearest aircraft
-    3. TRACK   — nearest aircraft's path + closest approach (CPA)
-    4. MUC MAP — Munich Airport runway close-up with live traffic
-    5. MUC OPS — next likely arrivals/departures board + cool visitor
-    6. MUC WX  — latest EDDM METAR summary
-    7. SPOTTER — coolest aircraft in the sky right now, and why
+    1. RADAR   — calm live radar, stacked labels, traffic counter (no sweep)
+    2. FLIGHT  — full-panel FlightRadar-style card for the nearest aircraft
+    3. TRACK   — nearest aircraft's flown path + closest approach (CPA)
+    4. MUC MAP — Munich Airport runway close-up with live traffic + wind
+    5. MUC OPS — full-panel split board: next two arrivals / departures
+    6. SPOTTER — coolest aircraft right now, with live MUC status/ETA
+    7. MUC WX  — aviation weather report + runway in use + field status
+
+  Chrome rules: the round bezel + compass letters live ONLY on map-like pages
+  (RADAR, TRACK, MUC MAP). Text pages (FLIGHT, MUC OPS, SPOTTER, MUC WX) are
+  deliberately bezel-less and use the full panel for content.
 
   Removed in the v6 refactor (kept the codebase honest and the cycle short):
     - OpenSky page: duplicated counts we already derive from adsb.lol data,
@@ -74,6 +78,7 @@ Adafruit_GC9A01A tft(TFT_CS, TFT_DC, TFT_RST);
 #define C_ORANGE  GC9A01A_ORANGE
 #define C_GREEN   tft.color565(60, 240, 120)
 #define C_BLUE    tft.color565(72, 150, 255)
+#define C_PURPLE  tft.color565(186, 96, 255)   // stationary/ground traffic on the MUC map
 #define C_GREY    tft.color565(130, 140, 150)
 
 // ---------- Aircraft ----------
@@ -90,7 +95,7 @@ int      planeCount = 0;
 
 uint32_t lastFetch = 0, lastPageSwitch = 0;
 int      failCount = 0;
-uint8_t  page      = 0;   // 0 radar, 1 flight, 2 track, 3 MUC map, 4 MUC ops, 5 weather, 6 spotter
+uint8_t  page      = 0;   // 0 radar, 1 flight, 2 track, 3 MUC map, 4 MUC ops, 5 spotter, 6 weather
 #define PAGE_COUNT 7
 // The radar and nearest-flight pages carry the most live value, so they hold
 // the screen longer; the reference/board pages rotate through more quickly.
@@ -128,10 +133,14 @@ RouteCache rc[ROUTE_CACHE_COUNT];
 struct MucWeather {
   bool ok = false;
   char raw[96] = "";
-  char wind[16] = "--";
-  char vis[12] = "--";
-  char temp[12] = "--";
-  char qnh[12] = "--";
+  char wind[16]  = "--";
+  char vis[12]   = "--";
+  char temp[12]  = "--";
+  char qnh[12]   = "--";
+  char cloud[14] = "--";     // lowest reported layer, e.g. "BKN 1800ft"
+  char wx[12]    = "DRY";    // significant weather (rain/snow/fog/...)
+  int  visM      = -1;       // parsed visibility in metres (-1 = unknown)
+  int  ceilFt    = -1;       // parsed BKN/OVC ceiling in feet (-1 = none/unknown)
   uint32_t lastFetch = 0;
 };
 MucWeather mucWx;
@@ -148,17 +157,23 @@ float  trailE[TRAIL_MAX], trailN[TRAIL_MAX];
 int    trailLen = 0;
 char   trailFor[10] = "";
 
-// Continuous animation state.
+// Live-motion animation state.
 //
-// The aircraft API updates in bursts, but the screen looks much better when
-// traffic keeps moving between fetches. lastLiveStep controls those light
-// animation redraws, while sweepDeg stores the rotating radar beam angle.
-int      sweepDeg = 0;
-uint32_t lastSweepStep = 0, lastLiveStep = 0;
+// The aircraft API updates in bursts (every FETCH_INTERVAL_MS); between
+// fetches the radar and airport pages advance traffic gently by dead
+// reckoning. NOTE: the rotating sweep beam was removed on purpose — it looked
+// alive but fought with aircraft labels and caused most of the perceived
+// jitter. A calm ~1 s traffic step reads far better on this small panel.
+#define RADAR_STEP_MS   1200
+#define AIRPORT_STEP_MS 1400
+uint32_t lastRadarStep = 0, lastLiveStep = 0;
 
-// dynamic pixels on radar page (low-flicker erase)
+// Dynamic pixels on the radar page (low-flicker erase). Sized with headroom
+// beyond MAX_AC because stacked aircraft labels register their own erase
+// blips in addition to the aircraft markers themselves.
+#define MAX_BLIPS (MAX_AC + 8)
 struct Blip { int16_t x, y; uint8_t r; };
-Blip prevBlips[MAX_AC + 1];
+Blip prevBlips[MAX_BLIPS];
 int  prevBlipCount = 0;
 
 // ---------- Math ----------
@@ -218,6 +233,12 @@ void liveAircraftOffsetKm(const Aircraft &p, float *eastKm, float *northKm) {
   float maxAgeSec = FETCH_INTERVAL_MS / 1000.0f;
   if (ageSec > maxAgeSec) ageSec = maxAgeSec;
 
+  // Quantize the projection to 0.4 s buckets. Without this, every 35 ms sweep
+  // repaint moves each triangle by a fraction of a pixel, which shows up as a
+  // constant +-1 px shimmer. With it, aircraft hold a stable position and then
+  // take a clean visible step — smoother AND calmer to look at.
+  ageSec = floorf(ageSec / 0.4f) * 0.4f;
+
   float km = groundSpeedKmh(p) / 3600.0f * ageSec;
   *eastKm  += sinf(deg2rad(p.trackDeg)) * km;
   *northKm += cosf(deg2rad(p.trackDeg)) * km;
@@ -272,6 +293,49 @@ void centerText(const char *s, int y, uint8_t size, uint16_t color) {
   if (x < 16) x = 16;
   tft.setCursor(x, y);
   tft.print(b);
+}
+
+// ---------- Aircraft type code -> human-readable name ----------
+// ICAO type designators (A320, B77W, ...) are compact but cryptic on a
+// consumer display. This table covers the airframes that realistically appear
+// around Munich; anything unknown falls back to the raw code, so the UI never
+// shows an empty field. Kept as one flat table so adding a type is one line.
+struct TypeName { const char *code; const char *name; };
+const TypeName typeNames[] = {
+  {"A19N", "Airbus A319neo"},    {"A20N", "Airbus A320neo"},
+  {"A21N", "Airbus A321neo"},    {"A319", "Airbus A319"},
+  {"A320", "Airbus A320"},       {"A321", "Airbus A321"},
+  {"A332", "Airbus A330-200"},   {"A333", "Airbus A330-300"},
+  {"A339", "Airbus A330-900"},   {"A343", "Airbus A340-300"},
+  {"A345", "Airbus A340-500"},   {"A346", "Airbus A340-600"},
+  {"A359", "Airbus A350-900"},   {"A35K", "Airbus A350-1000"},
+  {"A388", "Airbus A380"},       {"BCS1", "Airbus A220-100"},
+  {"BCS3", "Airbus A220-300"},   {"B37M", "Boeing 737 MAX 7"},
+  {"B38M", "Boeing 737 MAX 8"},  {"B39M", "Boeing 737 MAX 9"},
+  {"B737", "Boeing 737-700"},    {"B738", "Boeing 737-800"},
+  {"B739", "Boeing 737-900"},    {"B744", "Boeing 747-400"},
+  {"B748", "Boeing 747-8"},      {"B752", "Boeing 757-200"},
+  {"B763", "Boeing 767-300"},    {"B772", "Boeing 777-200"},
+  {"B77L", "Boeing 777-200LR"},  {"B773", "Boeing 777-300"},
+  {"B77W", "Boeing 777-300ER"},  {"B788", "Boeing 787-8"},
+  {"B789", "Boeing 787-9"},      {"B78X", "Boeing 787-10"},
+  {"E190", "Embraer E190"},      {"E195", "Embraer E195"},
+  {"E290", "Embraer E190-E2"},   {"E295", "Embraer E195-E2"},
+  {"CRJ9", "Bombardier CRJ900"}, {"AT76", "ATR 72-600"},
+  {"DH8D", "Dash 8 Q400"},       {"A400", "Airbus A400M"},
+  {"C17",  "C-17 Globemaster"},  {"C130", "C-130 Hercules"},
+  {"A124", "Antonov An-124"},    {"MD11", "McDonnell MD-11"},
+  {"GLF6", "Gulfstream G650"},   {"GL7T", "Global 7500"},
+  {"CL60", "Challenger 604"},    {"F2TH", "Falcon 2000"},
+  {"PC24", "Pilatus PC-24"},     {"PC12", "Pilatus PC-12"},
+  {"EC35", "Airbus H135"},       {"EC45", "Airbus H145"},
+};
+
+const char *typeName(const char *code) {
+  if (!code || !code[0]) return "unknown type";
+  for (unsigned i = 0; i < sizeof(typeNames)/sizeof(typeNames[0]); i++)
+    if (strcmp(code, typeNames[i].code) == 0) return typeNames[i].name;
+  return code;   // graceful fallback: the raw ICAO code beats an empty label
 }
 
 // ---------- Coolness scoring ----------
@@ -362,6 +426,36 @@ int coolestIdx() {
 }
 
 // ---------- Shared chrome ----------
+void drawCompassLetters() {
+  // Compass letters sit on small background pads so ticks/crosshair/sweep
+  // pixels never visually collide with the glyphs. They are re-drawn after
+  // every clearInner() because the circular clear wipes this band.
+  tft.setTextSize(1);
+  tft.fillRect(113, 20, 14, 9, C_BG);
+  tft.fillRect(113, 210, 14, 9, C_BG);
+  tft.fillRect(22, 116, 14, 9, C_BG);
+  tft.fillRect(204, 116, 14, 9, C_BG);
+  tft.setTextColor(C_BRIGHT);
+  tft.setCursor(117, 21);  tft.print("N");
+  tft.setTextColor(C_GRID);
+  tft.setCursor(117, 211); tft.print("S");
+  tft.setCursor(26, 117);  tft.print("W");
+  tft.setCursor(208, 117); tft.print("E");
+}
+
+void clearInner() {
+  // Clear a page's content area WITHOUT touching the bezel ring or tick band.
+  //
+  // Why a circle: any fillRect wide enough for real content has corners whose
+  // distance from screen centre exceeds the bezel radius (e.g. a rect corner
+  // at (28,36) sits at r=124 while the bezel lives at r=115/116). Those rect
+  // clears were exactly what kept "eating" chunks of the outer ring. A circle
+  // clear of radius 105 stays inside the tick band (ticks end at r=106) by
+  // construction, so the ring can never be overwritten again.
+  tft.fillCircle(120, 120, 105, C_BG);
+  drawCompassLetters();
+}
+
 void drawBezel() {
   // Keep the bezel slightly inside the physical 240 px edge. The GC9A01's
   // round mask and some modules' visible area can clip radius-119 pixels, which
@@ -376,20 +470,7 @@ void drawBezel() {
                  120 + (int)(s*(115-l)), 120 - (int)(c*(115-l)),
                  (a % 30 == 0) ? C_GRID : C_GRIDDIM);
   }
-  tft.setTextSize(1);
-  // Compass letters sit inside small background pads. Without the pads, the
-  // crosshair/rim ticks can visually touch the glyphs and make N/S/E/W look
-  // overlapped, especially while the radar beam is moving underneath.
-  tft.fillRect(113, 20, 14, 9, C_BG);
-  tft.fillRect(113, 210, 14, 9, C_BG);
-  tft.fillRect(22, 116, 14, 9, C_BG);
-  tft.fillRect(204, 116, 14, 9, C_BG);
-  tft.setTextColor(C_BRIGHT);
-  tft.setCursor(117, 21);  tft.print("N");
-  tft.setTextColor(C_GRID);
-  tft.setCursor(117, 211); tft.print("S");
-  tft.setCursor(26, 117);  tft.print("W");
-  tft.setCursor(208, 117); tft.print("E");
+  drawCompassLetters();
 }
 
 void pageDots() {
@@ -654,11 +735,41 @@ bool metarTempToken(const char *tok) {
   return asciiDigit(tok[0]) || (tok[0] == 'M' && asciiDigit(tok[1]));
 }
 
+bool metarCloudToken(const char *tok) {
+  // Cloud groups look like FEW040, SCT025, BKN018, OVC004 (+ optional CB/TCU).
+  return strlen(tok) >= 6 &&
+         (strncmp(tok, "FEW", 3) == 0 || strncmp(tok, "SCT", 3) == 0 ||
+          strncmp(tok, "BKN", 3) == 0 || strncmp(tok, "OVC", 3) == 0) &&
+         asciiDigit(tok[3]) && asciiDigit(tok[4]) && asciiDigit(tok[5]);
+}
+
+const char *metarWxName(const char *tok) {
+  // Map the common present-weather groups to something a person reads at a
+  // glance. Unmatched tokens return nullptr and are simply skipped — the raw
+  // METAR at the bottom of the page still carries the full truth.
+  struct WxName { const char *code; const char *name; };
+  static const WxName names[] = {
+    {"TSRA", "T-STORM"}, {"+TSRA", "T-STORM"}, {"TS", "T-STORM"},
+    {"+RA", "HVY RAIN"}, {"-RA", "LT RAIN"},   {"RA", "RAIN"},
+    {"SHRA", "SHOWERS"}, {"-SHRA", "SHOWERS"}, {"+SHRA", "SHOWERS"},
+    {"+SN", "HVY SNOW"}, {"-SN", "LT SNOW"},   {"SN", "SNOW"},
+    {"DZ", "DRIZZLE"},   {"-DZ", "DRIZZLE"},   {"GR", "HAIL"},
+    {"FG", "FOG"},       {"BR", "MIST"},       {"HZ", "HAZE"},
+  };
+  for (unsigned i = 0; i < sizeof(names)/sizeof(names[0]); i++)
+    if (strcmp(tok, names[i].code) == 0) return names[i].name;
+  return nullptr;
+}
+
 void parseMetarSummary() {
-  copyStr(mucWx.wind, sizeof(mucWx.wind), "--");
-  copyStr(mucWx.vis,  sizeof(mucWx.vis),  "--");
-  copyStr(mucWx.temp, sizeof(mucWx.temp), "--");
-  copyStr(mucWx.qnh,  sizeof(mucWx.qnh),  "--");
+  copyStr(mucWx.wind,  sizeof(mucWx.wind),  "--");
+  copyStr(mucWx.vis,   sizeof(mucWx.vis),   "--");
+  copyStr(mucWx.temp,  sizeof(mucWx.temp),  "--");
+  copyStr(mucWx.qnh,   sizeof(mucWx.qnh),   "--");
+  copyStr(mucWx.cloud, sizeof(mucWx.cloud), "--");
+  copyStr(mucWx.wx,    sizeof(mucWx.wx),    "DRY");
+  mucWx.visM = -1;
+  mucWx.ceilFt = -1;
 
   char work[128];
   copyStr(work, sizeof(work), mucWx.raw);
@@ -668,9 +779,29 @@ void parseMetarSummary() {
       copyStr(mucWx.wind, sizeof(mucWx.wind), tok);
     } else if (strcmp(tok, "CAVOK") == 0) {
       copyStr(mucWx.vis, sizeof(mucWx.vis), "CAVOK");
+      copyStr(mucWx.cloud, sizeof(mucWx.cloud), "CLEAR");
+      mucWx.visM = 10000;
+    } else if (strcmp(tok, "NSC") == 0 || strcmp(tok, "NCD") == 0) {
+      copyStr(mucWx.cloud, sizeof(mucWx.cloud), "CLEAR");
+    } else if (metarCloudToken(tok)) {
+      // Report the FIRST (lowest) layer for the display and remember the
+      // lowest broken/overcast layer as the operational ceiling.
+      int hFt = (tok[3]-'0') * 10000 + (tok[4]-'0') * 1000 + (tok[5]-'0') * 100;
+      if (mucWx.cloud[0] == '-')
+        snprintf(mucWx.cloud, sizeof(mucWx.cloud), "%.3s %dft", tok, hFt);
+      if ((strncmp(tok, "BKN", 3) == 0 || strncmp(tok, "OVC", 3) == 0) &&
+          (mucWx.ceilFt < 0 || hFt < mucWx.ceilFt))
+        mucWx.ceilFt = hFt;
+    } else if (metarWxName(tok)) {
+      copyStr(mucWx.wx, sizeof(mucWx.wx), metarWxName(tok));
     } else if (metarVisibilityToken(tok)) {
-      if (strcmp(tok, "9999") == 0) copyStr(mucWx.vis, sizeof(mucWx.vis), "10km+");
-      else                          copyStr(mucWx.vis, sizeof(mucWx.vis), tok);
+      mucWx.visM = atoi(tok);
+      if (strcmp(tok, "9999") == 0) {
+        copyStr(mucWx.vis, sizeof(mucWx.vis), "10km+");
+        mucWx.visM = 10000;
+      } else {
+        snprintf(mucWx.vis, sizeof(mucWx.vis), "%.1fkm", mucWx.visM / 1000.0);
+      }
     } else if (metarTempToken(tok)) {
       char tmp[8];
       int n = 0;
@@ -744,24 +875,33 @@ void dashedLine(int x0, int y0, float dirDeg, int len, uint16_t color) {
 }
 
 // ---------- Page 1: RADAR ----------
-#define RADAR_GRID_R    104
+// Ring radii are exactly 1/3, 2/3 and 3/3 of RADAR_TRAFFIC_R so the painted
+// rings really do mean 10/20/30 km with the default 30 km range (the old
+// 36/72/104 rings were subtly misaligned with the traffic projection).
 #define RADAR_TRAFFIC_R  96
 #define RADAR_RIM_R     101
 
 void radarGrid() {
-  tft.drawCircle(120, 120, 36,  C_GRIDDIM);
-  tft.drawCircle(120, 120, 72,  C_GRIDDIM);
-  tft.drawCircle(120, 120, RADAR_GRID_R, C_GRID);
-  tft.drawLine(120, 14, 120, 226, C_GRIDDIM);
-  tft.drawLine(14, 120, 226, 120, C_GRIDDIM);
+  tft.drawCircle(120, 120, RADAR_TRAFFIC_R / 3,     C_GRIDDIM);
+  tft.drawCircle(120, 120, RADAR_TRAFFIC_R * 2 / 3, C_GRIDDIM);
+  tft.drawCircle(120, 120, RADAR_TRAFFIC_R,         C_GRID);
+  tft.drawLine(120, 24, 120, 216, C_GRIDDIM);
+  tft.drawLine(24, 120, 216, 120, C_GRIDDIM);
   tft.fillCircle(120, 120, 2, C_BRIGHT);
+
+  // Per-ring km labels on the NE diagonal, tucked just inside each ring where
+  // they dodge the crosshair, the traffic counter, and the bezel tick band.
   tft.setTextSize(1);
   tft.setTextColor(C_GRID);
-  // Range label: with the default 30 km radar range, the rings are 10/20/30 km.
-  // The user-facing label stays deliberately terse ("20km") to avoid clutter.
-  char rng[14];
-  snprintf(rng, sizeof(rng), "%.0fkm", (double)(RADAR_RANGE_KM * 2 / 3));
-  tft.setCursor(166, 112); tft.print(rng);
+  for (int ring = 1; ring <= 3; ring++) {
+    int r = RADAR_TRAFFIC_R * ring / 3;
+    int lx = 120 + (int)((r - 14) * 0.707f);
+    int ly = 120 - (int)((r - 14) * 0.707f) - 4;
+    char km[8];
+    snprintf(km, sizeof(km), "%d", (int)(RADAR_RANGE_KM * ring / 3));
+    tft.setCursor(lx, ly);
+    tft.print(km);
+  }
 }
 
 void radarStatic() {
@@ -778,38 +918,39 @@ void eraseBlips(bool clearLabels) {
     tft.fillCircle(prevBlips[i].x, prevBlips[i].y, prevBlips[i].r, C_BG);
   prevBlipCount = 0;
   if (clearLabels) {
-    tft.fillRect(80, 34, 80, 20, C_BG);
+    tft.fillRect(80, 28, 80, 14, C_BG);    // traffic-counter chip
+  }
+}
+
+void pushBlip(int x, int y, uint8_t r) {
+  // Register a screen region for erase on the next repaint. Aircraft markers
+  // AND their stacked labels go through here, so nothing ever ghosts.
+  if (prevBlipCount < MAX_BLIPS) {
+    prevBlips[prevBlipCount].x = x;
+    prevBlips[prevBlipCount].y = y;
+    prevBlips[prevBlipCount].r = r;
+    prevBlipCount++;
   }
 }
 
 void radarLabels() {
-  // Main radar readout is intentionally just the destination tag. The earlier
-  // callsign + altitude/speed block was too much information for the live radar
-  // layer, and redrawing its filled rectangle on every sweep made it visibly
-  // jitter. Keep this tiny and refresh it only on page/data updates.
-  tft.fillRect(80, 34, 80, 20, C_BG);
-  int na = nearestAirborne();
-  if (na >= 0) {
-    Aircraft &n = planes[na];
-    char dest[8], tag[14];
-    if (routeDestinationCode(n, dest, sizeof(dest))) {
-      snprintf(tag, sizeof(tag), "TO %s", dest);
-    } else if (trafficLooksMucInbound(n)) {
-      snprintf(tag, sizeof(tag), "TO MUC");
-    } else {
-      // Destination unknown (route API has no match yet): the callsign is
-      // still more useful on the radar layer than a "TO ----" placeholder.
-      snprintf(tag, sizeof(tag), "%.10s", n.flight);
-    }
-    centerText(tag, 39, 2, trafficColor(n, false));
-  } else {
-    centerText("NO AIRCRAFT", 42, 1, C_DIM);
-  }
+  // Traffic-counter chip: how many airborne aircraft are within the close
+  // range around home, colour-coded by how busy the sky actually is. Green
+  // means quiet, amber means normal MUC business, red means look up now.
+  tft.fillRect(80, 28, 80, 14, C_BG);
+  int nearby = 0;
+  for (int i = 0; i < planeCount; i++)
+    if (!planes[i].ground && planes[i].distKm <= RADAR_RANGE_KM / 2) nearby++;
+  uint16_t c = nearby <= 2 ? C_GREEN : (nearby <= 6 ? C_AMBER : C_RED);
+  char chip[16];
+  snprintf(chip, sizeof(chip), "%d NEARBY", nearby);
+  centerText(chip, 31, 1, c);
 }
 
 void radarPaint(bool record, bool drawLabels) {
   radarGrid();
   if (record) prevBlipCount = 0;
+  int labeled = 0;
 
   for (int i = planeCount - 1; i >= 0; i--) {
     Aircraft &p = planes[i];
@@ -819,7 +960,7 @@ void radarPaint(bool record, bool drawLabels) {
     float liveD = sqrtf(liveE * liveE + liveN * liveN);
     float liveB = fmodf(atan2f(liveE, liveN) * 57.29578f + 360.0f, 360.0f);
     float b = deg2rad(liveB);
-    int x, y; uint8_t r;
+    int x, y;
     if (liveD <= RADAR_RANGE_KM) {
       uint16_t c = trafficColor(p, false);
       float rr = (liveD / RADAR_RANGE_KM) * RADAR_TRAFFIC_R;
@@ -833,19 +974,37 @@ void radarPaint(bool record, bool drawLabels) {
       int hy = y - (int)(cosf(deg2rad(p.trackDeg)) * 13);
       tft.drawLine(x, y, hx, hy, c);
       planeTriangle(x, y, p.trackDeg, i == nearestAirborne() ? 7 : 6, c);
-      r = 18;
+      if (record) pushBlip(x, y, 18);
+
+      // Stacked mini-label (callsign / type / altitude) for the nearest few
+      // aircraft, matching a classic radar-scope readout. The label sits on
+      // whichever side of the marker has room, is clamped to the inner disc,
+      // and registers its own erase blip so it can never ghost or smear.
+      if (labeled < 3 && p.altFt > 0 && rr < 70.0f) {
+        char l3[10];
+        snprintf(l3, sizeof(l3), "%dm", (int)(p.altFt * 0.3048f));
+        int lx = (x < 120) ? x + 10 : x - 52;
+        int ly = y - 13;
+        if (ly < 46) ly = 46;
+        if (ly > 168) ly = 168;
+        int cxl = lx + 21, cyl = ly + 13;   // label-box centre
+        bool fits = (cxl - 120) * (cxl - 120) + (cyl - 120) * (cyl - 120) <= 84 * 84 &&
+                    !radarTextShield(lx, ly) && !radarTextShield(lx + 42, ly);
+        if (fits) {
+          printFit(lx, ly,      p.flight, 1, C_WHITE, 42);
+          printFit(lx, ly + 10, p.typ,    1, C_CYAN,  42);
+          printFit(lx, ly + 20, l3,       1, C_AMBER, 42);
+          if (record) pushBlip(cxl, cyl, 30);
+          labeled++;
+        }
+      }
     } else {
+      // Out-of-range contact: small blue square pinned to the rim — direction
+      // cue only, consistent with the blue "outside range" grammar elsewhere.
       x = 120 + (int)(sinf(b) * RADAR_RIM_R);
       y = 120 - (int)(cosf(b) * RADAR_RIM_R);
-      tft.fillCircle(x, y, 3, C_BLUE);
-      tft.drawCircle(x, y, 4, C_BG);
-      r = 5;
-    }
-    if (record && prevBlipCount < MAX_AC + 1) {
-      prevBlips[prevBlipCount].x = x;
-      prevBlips[prevBlipCount].y = y;
-      prevBlips[prevBlipCount].r = r;
-      prevBlipCount++;
+      tft.fillRect(x - 2, y - 2, 5, 5, C_BLUE);
+      if (record) pushBlip(x, y, 5);
     }
   }
 
@@ -861,33 +1020,18 @@ void radarPaint(bool record, bool drawLabels) {
 void radarDynamic() { eraseBlips(true); radarPaint(true, true); }
 
 bool radarTextShield(int x, int y) {
-  // The radar beam is drawn pixel-by-pixel so it can skip the UI text zones.
-  // That is cheaper and cleaner than drawing through text and then repainting
-  // all labels, which caused the little jagged/jittery artifacts on the main
-  // page.
-  bool topFlight = x >= 76 && x <= 164 && y >= 30 && y <= 60;
-  bool rangeLabel = x >= 158 && x <= 198 && y >= 104 && y <= 124;
-  return topFlight || rangeLabel;
+  // Reserved zone for the traffic-counter chip: aircraft markers and their
+  // stacked labels are simply not drawn here, so the counter never fights
+  // with moving traffic for the same pixels.
+  return x >= 76 && x <= 164 && y >= 26 && y <= 46;
 }
 
-void drawRadarBeam(int deg, uint16_t color) {
-  float a = deg2rad((float)deg);
-  float s = sinf(a), c = cosf(a);
-  for (int r = 8; r <= RADAR_GRID_R; r += 2) {
-    int x = 120 + (int)(s * r);
-    int y = 120 - (int)(c * r);
-    if (radarTextShield(x, y)) continue;
-    tft.drawPixel(x, y, color);
-    if (r > 22 && r < 102 && !radarTextShield(x + 1, y)) tft.drawPixel(x + 1, y, color);
-  }
-}
-
-void sweepStep() {
-  drawRadarBeam(sweepDeg, C_BG);
+void radarStep() {
+  // Calm live motion: advance dead-reckoned traffic roughly once per second.
+  // This replaced the rotating sweep beam — see the animation-state comment
+  // near the top of the file for why the beam was removed.
   eraseBlips(false);
   radarPaint(true, false);
-  sweepDeg = (sweepDeg + 5) % 360;
-  drawRadarBeam(sweepDeg, C_SWEEP);
 }
 
 // ---------- Flight card (shared by nearest-flight + spotter pages) ----------
@@ -903,47 +1047,76 @@ void statRow(int y, const char *l1, const char *v1,
 }
 
 void flightCard(Aircraft &n, RouteCache &r, const char *topBadge, uint16_t badgeColor) {
-  tft.fillRect(28, 36, 184, 84, C_BG);
-  tft.fillRect(28, 128, 184, 64, C_BG);
-  tft.fillRect(40, 196, 160, 16, C_BG);
+  // Full-page FlightRadar-style card. The FLIGHT and SPOTTER pages carry no
+  // bezel ring or compass letters (per design: that chrome wasted space on
+  // text-heavy pages), so a plain full-screen clear is safe here and gives
+  // the card the whole round panel to breathe in.
+  tft.fillScreen(C_BG);
 
-  if (topBadge[0]) centerText(topBadge, 38, 1, badgeColor);
-  centerText(n.flight, 50, 3, C_AMBER);
-  if (r.codes[0]) {
-    centerText(r.codes, 78, 2, C_CYAN);
-    if (r.cities[0]) centerText(r.cities, 96, 1, C_DIM);
-  } else {
-    centerText("route unknown", 84, 1, C_DIM);
-  }
+  if (topBadge[0]) centerText(topBadge, 22, 1, badgeColor);
+  centerText(n.flight, 38, 3, C_AMBER);
+
+  // Airline row with a compact "tail logo" stand-in: a coloured roundel
+  // carrying the callsign's two-letter prefix. Real airline logos would need
+  // bitmap assets; the roundel gives each carrier a stable visual identity
+  // (colour is derived from the prefix, so Lufthansa is always the same hue).
   const char *who = r.airline[0] ? r.airline : n.op;
-  if (who[0]) centerText(who, 108, 1, C_WHITE);
+  if (who[0]) {
+    char name[22];
+    fitCopy(name, sizeof(name), who, 20);
+    const uint16_t roundelPalette[5] = {
+      C_CYAN, C_AMBER, C_GREEN, C_BLUE, C_PURPLE
+    };
+    uint16_t rcol = roundelPalette[((uint8_t)n.flight[0] + (uint8_t)n.flight[1]) % 5];
+    int nameW  = (int)strlen(name) * 6;
+    int x0     = 120 - (nameW + 24) / 2;
+    tft.fillCircle(x0 + 9, 72, 9, rcol);
+    tft.setTextSize(1);
+    tft.setTextColor(C_BG);
+    tft.setCursor(x0 + 4, 69);
+    tft.print(n.flight[0]); tft.print(n.flight[1]);
+    tft.setTextColor(C_WHITE);
+    tft.setCursor(x0 + 24, 69);
+    tft.print(name);
+  }
+
+  if (r.codes[0]) {
+    centerText(r.codes, 88, 2, C_CYAN);
+    if (r.cities[0]) centerText(r.cities, 106, 1, C_DIM);
+  } else {
+    centerText("route unknown", 94, 1, C_DIM);
+  }
+
+  tft.drawFastHLine(40, 118, 160, C_GRIDDIM);
 
   char v1[16], v2[16];
   uint16_t distC = n.distKm < 5 ? C_RED : (n.distKm < 12 ? C_AMBER : C_WHITE);
   snprintf(v1, sizeof(v1), "%.1f km", (double)n.distKm);
   snprintf(v2, sizeof(v2), "%.0f %s", (double)n.bearingDeg, compass8(n.bearingDeg));
-  statRow(132, "DIST", v1, "BRG", v2, distC, C_WHITE);
+  statRow(126, "DIST", v1, "BRG", v2, distC, C_WHITE);
 
   uint16_t vsC = n.vrFpm > 300 ? C_BRIGHT : (n.vrFpm < -300 ? C_AMBER : C_WHITE);
   if (n.ground) snprintf(v1, sizeof(v1), "GROUND");
   else          snprintf(v1, sizeof(v1), "%d m", (int)(n.altFt * 0.3048f));
   snprintf(v2, sizeof(v2), "%+d m/s", (int)(n.vrFpm * 0.00508f));
-  statRow(148, "ALT", v1, "V/S", v2, C_WHITE, vsC);
+  statRow(142, "ALT", v1, "V/S", v2, C_WHITE, vsC);
 
   snprintf(v1, sizeof(v1), "%d km/h", (int)(n.gsKt * 1.852f));
   snprintf(v2, sizeof(v2), "%.0f %s", (double)n.trackDeg, compass8(n.trackDeg));
-  statRow(164, "SPD", v1, "TRK", v2, C_WHITE, C_WHITE);
+  statRow(158, "SPD", v1, "TRK", v2, C_WHITE, C_WHITE);
 
   char tr[16];
   snprintf(tr, sizeof(tr), "%s %s", n.typ[0] ? n.typ : "----", n.reg);
   snprintf(v2, sizeof(v2), "%s", n.sqk[0] ? n.sqk : "----");
-  statRow(180, "A/C", tr, "SQK", v2, C_WHITE, C_WHITE);
+  statRow(174, "A/C", tr, "SQK", v2, C_WHITE, C_WHITE);
 
+  // "Where do I look" strip: kept because it is the one piece of chrome that
+  // earns its pixels — it converts screen data into a real-world direction.
   char look[20];
   snprintf(look, sizeof(look), "LOOK %s", compass8(n.bearingDeg));
-  centerText(look, 200, 1, C_AMBER);
+  centerText(look, 196, 1, C_AMBER);
   float b = deg2rad(n.bearingDeg);
-  int ax = 120 - (int)(strlen(look) * 3) - 12, ay = 203;
+  int ax = 120 - (int)(strlen(look) * 3) - 12, ay = 199;
   tft.fillTriangle(ax + (int)(sinf(b)*6),      ay - (int)(cosf(b)*6),
                    ax + (int)(sinf(b+2.6f)*5), ay - (int)(cosf(b+2.6f)*5),
                    ax + (int)(sinf(b-2.6f)*5), ay - (int)(cosf(b-2.6f)*5), C_AMBER);
@@ -951,53 +1124,83 @@ void flightCard(Aircraft &n, RouteCache &r, const char *topBadge, uint16_t badge
 
 // ---------- Page 2: FLIGHT ----------
 void detailStatic() {
+  // Bezel-less by design: the flight card owns the whole panel.
   tft.fillScreen(C_BG);
-  drawBezel();
-  centerText("NEAREST FLIGHT", 26, 1, C_GRID);
-  tft.drawFastHLine(52, 124, 136, C_GRIDDIM);
   pageDots();
 }
 
 void detailDynamic() {
   int na = nearestAirborne();
-  if (na < 0) { centerText("no contacts", 110, 2, C_DIM); return; }
-  flightCard(planes[na], rc[0], "", C_DIM);
+  if (na < 0) {
+    tft.fillScreen(C_BG);
+    centerText("no contacts", 110, 2, C_DIM);
+    return;
+  }
+  // The old "NEAREST FLIGHT" heading was dropped: its row now carries the
+  // human-readable aircraft name ("Airbus A350-900" instead of "A359"),
+  // which is far more useful to a spotter than a static page title. The raw
+  // ICAO code + registration stay available in the A/C stat row below.
+  flightCard(planes[na], rc[0], typeName(planes[na].typ), C_CYAN);
 }
 
 // ---------- Page 3: TRACK ----------
 void trackStatic() {
   tft.fillScreen(C_BG);
   drawBezel();
-  centerText("FLIGHT TRACK", 26, 1, C_GRID);
   pageDots();
 }
 
 void trackDynamic() {
-  tft.fillRect(24, 36, 192, 180, C_BG);
+  clearInner();
   int na = nearestAirborne();
   if (na < 0) { centerText("no contacts", 110, 2, C_DIM); return; }
   Aircraft &n = planes[na];
 
-  float range = n.distKm * 1.5f;
-  if (range < 8) range = 8;
+  // Zoomed-out ground view: home stays centred and the wider range keeps much
+  // more of an arrival/departure path visible at once (the old 1.5x zoom cut
+  // most MUC approaches off at the screen edge).
+  float range = n.distKm * 1.8f;
+  if (range < 12) range = 12;
   float scale = 86.0f / range;
 
   tft.drawCircle(120, 126, 43, C_GRIDDIM);
   tft.drawCircle(120, 126, 86, C_GRIDDIM);
   tft.setTextSize(1); tft.setTextColor(C_GRID);
-  tft.setCursor(166, 130); tft.printf("%.0fkm", (double)range);
+  tft.setCursor(164, 130); tft.printf("%.0fkm", (double)range);
+
+  // Munich Airport marker, drawn whenever it falls inside the view. Arrivals
+  // and departures now visually connect to the airport (two mini runway
+  // strokes at the real 08/26 heading) instead of tracking to empty space.
+  int mx = 120 + (int)(mucE * scale);
+  int my = 126 - (int)(mucN * scale);
+  if ((mx - 120) * (mx - 120) + (my - 126) * (my - 126) <= 80 * 80) {
+    int ue = (int)(sinf(deg2rad(RWY_HDG)) * 8.0f);
+    int un = (int)(cosf(deg2rad(RWY_HDG)) * 8.0f);
+    tft.drawLine(mx - ue, my + un - 2, mx + ue, my - un - 2, C_GREY);
+    tft.drawLine(mx - ue, my + un + 2, mx + ue, my - un + 2, C_GREY);
+    tft.setTextColor(C_GREY);
+    tft.setCursor(mx - 8, my + 8);
+    tft.print("MUC");
+  }
 
   tft.fillCircle(120, 126, 3, C_CYAN);
   tft.drawCircle(120, 126, 6, C_CYAN);
   tft.setTextColor(C_CYAN);
   tft.setCursor(111, 136); tft.print("YOU");
 
+  // Flown path as a connected polyline that fades with age (bright = recent,
+  // dim = old) — reads as a real flight track rather than disconnected dots.
+  int prevX = 0, prevY = 0;
+  bool havePrev = false;
   for (int i = 0; i < trailLen; i++) {
     int x = 120 + (int)(trailE[i] * scale);
     int y = 126 - (int)(trailN[i] * scale);
-    if ((x-120)*(x-120) + (y-126)*(y-126) > 88*88) continue;
+    bool inView = (x-120)*(x-120) + (y-126)*(y-126) <= 88*88;
+    if (!inView) { havePrev = false; continue; }
     uint16_t c = (i > trailLen - 4) ? C_BRIGHT : (i > trailLen - 10 ? C_SWEEP : C_GRIDDIM);
+    if (havePrev) tft.drawLine(prevX, prevY, x, y, c);
     tft.fillCircle(x, y, (i == trailLen - 1) ? 2 : 1, c);
+    prevX = x; prevY = y; havePrev = true;
   }
 
   int px = 120 + (int)(n.eastKm * scale);
@@ -1008,7 +1211,17 @@ void trackDynamic() {
     planeTriangle(px, py, n.trackDeg, 7, C_AMBER);
   }
 
-  centerText(n.flight, 40, 2, C_AMBER);
+  // Header band: callsign + route context; footer band: labeled live numbers.
+  // Everything is centred and kept within the circle-safe rows, so long
+  // callsigns or big numbers clip gracefully instead of touching the bezel.
+  centerText(n.flight, 28, 2, C_AMBER);
+  RouteCache *route = cachedRouteFor(n.flight);
+  if (route && route->codes[0]) centerText(route->codes, 48, 1, C_CYAN);
+
+  char live[40];
+  snprintf(live, sizeof(live), "ALT %dm  SPD %dkm/h",
+           (int)(n.altFt * 0.3048f), (int)(n.gsKt * 1.852f));
+  centerText(live, 186, 1, C_WHITE);
 
   float spdKms = n.gsKt * 1.852f / 3600.0f;
   float vx = sinf(deg2rad(n.trackDeg)) * spdKms;
@@ -1147,12 +1360,26 @@ int nextDepartureIdx() {
 void airportStatic() {
   tft.fillScreen(C_BG);
   drawBezel();
-  centerText("MUC  MUNICH", 26, 1, C_AMBER);
   pageDots();
 }
 
 void airportDynamic() {
-  tft.fillRect(24, 36, 192, 180, C_BG);
+  clearInner();
+
+  // Header: airport name with its identifier/wind line beneath. Placed at
+  // y=31/41 — BELOW the "N" compass pad (y 20..29) — which fixes the bug
+  // where the header text overwrote the N label after every live update.
+  centerText("MUNICH AIRPORT", 31, 1, C_AMBER);
+  // Identifier line doubles as a live field-wind chip when a METAR is cached —
+  // a very "real airport display" touch that also hints at the runway
+  // direction in use (winds from ~260 favour 26L/R, from ~080 favour 08L/R).
+  if (mucWx.ok && mucWx.wind[0] && strcmp(mucWx.wind, "--") != 0) {
+    char sub[26];
+    snprintf(sub, sizeof(sub), "EDDM  %s", mucWx.wind);
+    centerText(sub, 41, 1, C_DIM);
+  } else {
+    centerText("MUC / EDDM", 41, 1, C_DIM);
+  }
 
   // Approach/departure range guide. The runway page is a close-up airport view;
   // aircraft outside the close-up are clamped to this ring, so the page remains
@@ -1199,39 +1426,33 @@ void airportDynamic() {
       clampedToEdge = true;
     }
 
-    if (p.ground) {
-      tft.fillCircle(x, y, 3, C_BLUE);
-      if (clampedToEdge) tft.drawCircle(x, y, 7, C_BLUE);
+    // Visual grammar of the operations map (bottom legend removed — the
+    // shapes and colours ARE the legend, consistent across the device):
+    //   blue square   = traffic outside the close-up, pinned to the map edge
+    //   purple circle = stationary/ground aircraft on the field
+    //   green arrow   = arriving traffic (ring marks the NEXT arrival)
+    //   red arrow     = departing traffic (ring marks the NEXT departure)
+    //   high overflights are intentionally not drawn — they belong to the
+    //   radar page and only cluttered the runway view.
+    if (clampedToEdge) {
+      tft.fillRect(x - 2, y - 2, 5, 5, C_BLUE);
+    } else if (p.ground) {
+      tft.fillCircle(x, y, 3, C_PURPLE);
     } else if (low) {
       uint16_t c = trafficColor(p, false);
       if (i == nextArr || likelyArrival(p)) c = C_GREEN;
       if (i == nextDep || likelyDeparture(p)) c = C_RED;
-      int hx = x + (int)(sinf(deg2rad(p.trackDeg)) * 12);
-      int hy = y - (int)(cosf(deg2rad(p.trackDeg)) * 12);
-      // Airport traffic intentionally uses dots instead of aircraft triangles:
-      // green dots are arrivals, red dots are departures, blue dots are ground
-      // or stationary aircraft. The short tail preserves direction without
-      // cluttering the enlarged runway drawing.
-      tft.drawLine(x, y, hx, hy, c == C_WHITE ? C_GRIDDIM : c);
-      tft.fillCircle(x, y, (i == nextArr || i == nextDep) ? 5 : 4, c);
-      if (clampedToEdge) tft.drawCircle(x, y, 7, c);
-    } else {
-      tft.fillCircle(x, y, 2, C_AMBER);   // high/non-airport overflight
+      bool nextUp = (i == nextArr || i == nextDep);
+      planeTriangle(x, y, p.trackDeg, nextUp ? 8 : 6, c);
+      if (nextUp) tft.drawCircle(x, y, 11, c);   // "next up" highlight ring
     }
   }
-
-  // Bottom legend only: counts change often and caused distracting number
-  // flicker. The map itself now carries the information through color.
-  tft.setTextSize(1);
-  tft.fillCircle(62, 200, 3, C_GREEN); tft.setTextColor(C_GREEN); tft.setCursor(68, 197); tft.print("ARR");
-  tft.fillCircle(112, 200, 3, C_RED);  tft.setTextColor(C_RED);   tft.setCursor(118, 197); tft.print("DEP");
-  tft.fillCircle(162, 200, 3, C_BLUE); tft.setTextColor(C_BLUE);  tft.setCursor(168, 197); tft.print("GND");
 }
 
 void mucOpsStatic() {
+  // Bezel-less by design: a text board gains nothing from the compass ring,
+  // and the freed edge pixels let the two columns breathe.
   tft.fillScreen(C_BG);
-  drawBezel();
-  centerText("MUC NEXT", 26, 1, C_AMBER);
   pageDots();
 }
 
@@ -1241,69 +1462,70 @@ void drawMucBoardCell(int x, int y, int w, const char *label, int idx, uint16_t 
   // This is much more stable on the round display than one long airport list.
   printFit(x, y, label, 1, color, w);
   if (idx < 0) {
-    printFit(x, y + 15, "watching", 1, C_DIM, w);
+    printFit(x, y + 14, "watching...", 1, C_DIM, w);
     return;
   }
 
   Aircraft &p = planes[idx];
   float d = distanceToMucKm(p);
   float eta = etaMinForDistance(d, p);
-  char top[24];
-  if (arrival && eta >= 0) snprintf(top, sizeof(top), "%s %.0fmin", p.flight, (double)eta);
-  else                     snprintf(top, sizeof(top), "%s %.1fkm", p.flight, (double)d);
-  printFit(x, y + 12, top, 1, C_WHITE, w);
 
+  // Line 1: callsign (the "who").
+  printFit(x, y + 14, p.flight, 1, C_WHITE, w);
+
+  // Line 2: the operational answer — minutes out for arrivals (when speed
+  // data allows an ETA), distance from the field for departures.
+  char when[20];
+  if (arrival && eta >= 0) snprintf(when, sizeof(when), "in %.0f min", (double)eta);
+  else if (arrival)        snprintf(when, sizeof(when), "%.1f km out", (double)d);
+  else if (p.ground)       snprintf(when, sizeof(when), "on field");
+  else                     snprintf(when, sizeof(when), "%.1f km away", (double)d);
+  printFit(x, y + 26, when, 1, color, w);
+
+  // Line 3: route context when the route API knows the flight, otherwise the
+  // aircraft type + altitude as a graceful fallback.
   char routeLine[30];
   RouteCache *route = cachedRouteFor(p.flight);
   if (route && route->codes[0]) {
-    snprintf(routeLine, sizeof(routeLine), "%.18s", route->codes);
+    snprintf(routeLine, sizeof(routeLine), "%.13s", route->codes);
   } else if (p.ground) {
     snprintf(routeLine, sizeof(routeLine), "%s GND", p.typ[0] ? p.typ : "----");
   } else {
     snprintf(routeLine, sizeof(routeLine), "%s %dm", p.typ[0] ? p.typ : "----", (int)(p.altFt * 0.3048f));
   }
-  printFit(x, y + 24, routeLine, 1, C_DIM, w);
+  printFit(x, y + 38, routeLine, 1, C_DIM, w);
 }
 
 void mucOpsDynamic() {
-  tft.fillRect(24, 40, 192, 176, C_BG);
+  // FIDS-style split board: arrivals on the left in green, departures on the
+  // right in red (same colour grammar as the radar/map pages). Exactly the
+  // next two flights per side — the spotter page owns "interesting aircraft",
+  // so no COOL footer competes with the board. Bezel-less, so the columns use
+  // the full panel width.
+  tft.fillScreen(C_BG);
+  centerText("MUC TRAFFIC BOARD", 16, 1, C_AMBER);
+
   int arrIdx[2], depIdx[2];
   topMucTraffic(true, arrIdx);
   topMucTraffic(false, depIdx);
-  int coolIdx = -1, coolBest = -1;
-  const char *coolLabel = "";
-
-  for (int i = 0; i < planeCount; i++) {
-    if (distanceToMucKm(planes[i]) > 28.0f) continue;
-    const char *label;
-    int s = coolScore(planes[i], &label);
-    if (s > coolBest) { coolBest = s; coolIdx = i; coolLabel = label; }
-  }
 
   tft.setTextSize(2);
-  tft.setTextColor(C_GREEN); tft.setCursor(54, 42);  tft.print("ARR");
-  tft.setTextColor(C_RED);   tft.setCursor(146, 42); tft.print("DEP");
-  tft.drawFastVLine(120, 62, 94, C_GRIDDIM);
-  tft.drawFastHLine(36, 96, 80, C_GRIDDIM);
-  tft.drawFastHLine(128, 96, 80, C_GRIDDIM);
-  drawMucBoardCell(34, 66, 82, "A1", arrIdx[0], C_GREEN, true);
-  drawMucBoardCell(34, 112, 82, "A2", arrIdx[1], C_GREEN, true);
-  drawMucBoardCell(128, 66, 82, "D1", depIdx[0], C_RED, false);
-  drawMucBoardCell(128, 112, 82, "D2", depIdx[1], C_RED, false);
+  tft.setTextColor(C_GREEN); tft.setCursor(50, 34);  tft.print("ARR");
+  tft.setTextColor(C_RED);   tft.setCursor(152, 34); tft.print("DEP");
+  tft.drawFastHLine(28, 52, 88, C_GREEN);
+  tft.drawFastHLine(124, 52, 88, C_RED);
+  tft.drawFastVLine(120, 58, 128, C_GRIDDIM);
 
-  tft.setTextSize(1);
-  tft.setTextColor(C_GRID);
-  tft.drawFastHLine(48, 164, 144, C_GRIDDIM);
-  tft.setCursor(34, 178); tft.print("COOL");
-  if (coolIdx >= 0) {
-    Aircraft &c = planes[coolIdx];
-    char coolTop[28];
-    snprintf(coolTop, sizeof(coolTop), "%s %s", c.flight, c.typ[0] ? c.typ : "----");
-    printFit(74, 178, coolTop, 1, coolBest >= 85 ? C_RED : C_CYAN, 132);
-    printFit(48, 192, coolLabel, 1, C_DIM, 156);
-  } else {
-    printFit(74, 178, "watching traffic", 1, C_DIM, 120);
-  }
+  drawMucBoardCell(28,  60,  88, "NEXT", arrIdx[0], C_GREEN, true);
+  drawMucBoardCell(28,  124, 88, "THEN", arrIdx[1], C_GREEN, true);
+  drawMucBoardCell(124, 60,  88, "NEXT", depIdx[0], C_RED, false);
+  drawMucBoardCell(124, 124, 88, "THEN", depIdx[1], C_RED, false);
+
+  // Footer: when the board saw its data (age of the last successful fetch),
+  // so a stale board is honest about being stale.
+  char age[24];
+  snprintf(age, sizeof(age), "data %lus ago", (unsigned long)((millis() - lastFetch) / 1000UL));
+  centerText(age, 206, 1, C_GRIDDIM);
 }
 
 // ---------- Page 6: MUC WEATHER ----------
@@ -1315,75 +1537,144 @@ void dataRow(int y, const char *label, const char *value, uint16_t valueColor) {
   printFit(106, y, value, 1, valueColor, 86);
 }
 
+const char *flightCategory(uint16_t *color) {
+  // Operations hint derived from the METAR itself (visibility + ceiling),
+  // modelled on the standard VFR/MVFR/IFR flight-category bands. This is
+  // honest, locally computed data — we deliberately do NOT fake a delay
+  // percentage here, because no free API provides trustworthy 12 h delay
+  // statistics (see changelog on why aviationstack was removed).
+  bool visGood     = mucWx.visM < 0 || mucWx.visM >= 8000;
+  bool visMarginal = mucWx.visM < 0 || mucWx.visM >= 3000;
+  bool ceilGood     = mucWx.ceilFt < 0 || mucWx.ceilFt >= 3000;
+  bool ceilMarginal = mucWx.ceilFt < 0 || mucWx.ceilFt >= 1000;
+  if (visGood && ceilGood)         { *color = C_GREEN; return "NORMAL OPS"; }
+  if (visMarginal && ceilMarginal) { *color = C_AMBER; return "MARGINAL OPS"; }
+  *color = C_RED;
+  return "LOW VIS OPS";
+}
+
+void activeRunway(char *dst, size_t dstN) {
+  // Estimate the runway direction in use from the METAR wind: aircraft take
+  // off and land into the wind, so winds from the west (~260) mean 26L/26R
+  // operations and winds from the east (~080) mean 08L/08R. Variable/calm
+  // winds give no answer, and we say so instead of guessing.
+  dst[0] = 0;
+  if (!mucWx.ok) return;
+  if (!asciiDigit(mucWx.wind[0]) || !asciiDigit(mucWx.wind[1]) ||
+      !asciiDigit(mucWx.wind[2])) return;          // "VRB..." or unparsed
+  int windFrom = (mucWx.wind[0]-'0') * 100 + (mucWx.wind[1]-'0') * 10 + (mucWx.wind[2]-'0');
+  if (angleDiffDeg((float)windFrom, RWY_HDG) < 90.0f)
+    copyStr(dst, dstN, "08 L/R");
+  else
+    copyStr(dst, dstN, "26 L/R");
+}
+
 void mucWeatherStatic() {
+  // Bezel-less by design: a weather report gains nothing from a compass ring.
   tft.fillScreen(C_BG);
-  drawBezel();
-  centerText("MUC METAR", 26, 1, C_AMBER);
   pageDots();
 }
 
 void mucWeatherDynamic() {
-  tft.fillRect(24, 40, 192, 176, C_BG);
+  tft.fillScreen(C_BG);
+  centerText("MUC WEATHER", 16, 1, C_AMBER);
   bool ok = fetchMucWeather();
   if (!ok) {
-    centerText("weather data", 96, 2, C_DIM);
-    centerText("not loaded yet", 118, 1, C_GRID);
+    centerText("no METAR yet", 104, 2, C_DIM);
+    centerText("retrying on next visit", 128, 1, C_GRID);
     return;
   }
 
-  centerText("EDDM WEATHER", 48, 2, C_CYAN);
-  dataRow(78,  "WIND", mucWx.wind, C_WHITE);
-  dataRow(96,  "VIS",  mucWx.vis,  C_WHITE);
-  dataRow(114, "TEMP", mucWx.temp, C_WHITE);
-  dataRow(132, "QNH",  mucWx.qnh,  C_WHITE);
+  // Full aviation snapshot: wind, visibility, lowest cloud layer, temperature,
+  // pressure, significant weather, and the estimated runway in use. Values
+  // are colour-coded only when they say something operationally interesting.
+  dataRow(36,  "WIND",  mucWx.wind,  C_WHITE);
+  dataRow(54,  "VIS",   mucWx.vis,   C_WHITE);
+  dataRow(72,  "CLOUD", mucWx.cloud, C_WHITE);
+  dataRow(90,  "TEMP",  mucWx.temp,  C_WHITE);
+  dataRow(108, "QNH",   mucWx.qnh,   C_WHITE);
+  dataRow(126, "WX",    mucWx.wx,
+          strcmp(mucWx.wx, "DRY") == 0 ? C_WHITE : C_AMBER);
 
-  tft.drawFastHLine(46, 154, 148, C_GRIDDIM);
-  char raw1[28], raw2[28];
-  fitCopy(raw1, sizeof(raw1), mucWx.raw, 24);
-  fitCopy(raw2, sizeof(raw2), mucWx.raw + strlen(raw1), 24);
-  printFit(40, 170, raw1, 1, C_DIM, 160);
-  printFit(40, 184, raw2, 1, C_DIM, 160);
+  char rwy[10];
+  activeRunway(rwy, sizeof(rwy));
+  dataRow(144, "RWY", rwy[0] ? rwy : "--", rwy[0] ? C_CYAN : C_DIM);
+
+  // Field status strip (see flightCategory for why this is METAR-derived).
+  uint16_t catColor;
+  const char *cat = flightCategory(&catColor);
+  tft.drawFastHLine(40, 162, 160, C_GRIDDIM);
+  tft.fillCircle(70, 175, 3, catColor);
+  centerText(cat, 171, 1, catColor);
+
+  // Raw METAR tail: the unfiltered truth for anyone who reads METAR, clipped
+  // into two fixed rows so odd station remarks can never break the layout.
+  char raw1[26], raw2[26];
+  fitCopy(raw1, sizeof(raw1), mucWx.raw, 22);
+  fitCopy(raw2, sizeof(raw2), mucWx.raw + strlen(raw1), 22);
+  printFit(54, 188, raw1, 1, C_DIM, 132);
+  printFit(54, 200, raw2, 1, C_DIM, 132);
 }
 
 // ---------- Page 7: SPOTTER ----------
 void spotterStatic() {
+  // Bezel-less by design: the flight card owns the whole panel.
   tft.fillScreen(C_BG);
-  drawBezel();
-  centerText("PLANE SPOTTER", 26, 1, C_GRID);
-  tft.drawFastHLine(52, 124, 136, C_GRIDDIM);
   pageDots();
 }
 
 void spotterDynamic() {
   int ci = coolestIdx();
-  if (ci < 0) { centerText("no contacts", 110, 2, C_DIM); return; }
+  if (ci < 0) {
+    tft.fillScreen(C_BG);
+    centerText("no contacts", 110, 2, C_DIM);
+    return;
+  }
+  Aircraft &p = planes[ci];
   const char *label;
-  int score = coolScore(planes[ci], &label);
+  int score = coolScore(p, &label);
   uint16_t badgeC = score >= 85 ? C_RED : (score >= 50 ? C_AMBER : C_DIM);
-  char badge[28];
-  if (score >= 40) snprintf(badge, sizeof(badge), "WHY: %.20s", label);
-  else             snprintf(badge, sizeof(badge), "WHY: REGULAR TRAFFIC");
-  flightCard(planes[ci], rc[1], badge, badgeC);
+
+  // One concise spotting line instead of the old "WHY:" prefix — what the
+  // aircraft is, plus its live operational status around Munich:
+  //   "SUPERJUMBO A380 - MUC 12MIN"  (inbound, with ETA)
+  //   "C-17 GLOBEMASTER - AT MUC"    (on the field right now)
+  //   "QUEEN B747 - LEAVING MUC"     (on climbout)
+  //   "RARE QUAD A340 - 24KM AWAY"   (notable but just passing by)
+  // Departure times for parked aircraft are not in any free feed, so ground
+  // traffic honestly says "AT MUC" instead of inventing a departure ETA.
+  char badge[34];
+  float mucD = distanceToMucKm(p);
+  float eta = etaMinForDistance(mucD, p);
+  if (p.ground && mucD < 6.0f) {
+    snprintf(badge, sizeof(badge), "%.18s - AT MUC", label);
+  } else if (likelyArrival(p) && eta >= 0 && eta < 90) {
+    snprintf(badge, sizeof(badge), "%.15s - MUC %dMIN", label, (int)(eta + 0.5f));
+  } else if (likelyDeparture(p)) {
+    snprintf(badge, sizeof(badge), "%.15s - LEAVING MUC", label);
+  } else {
+    snprintf(badge, sizeof(badge), "%.15s - %.0fKM AWAY", label, (double)p.distKm);
+  }
+  flightCard(p, rc[1], badge, badgeC);
 }
 
 // ---------- Page management ----------
 bool skipPage(uint8_t p) {
   if ((p == 1 || p == 2) && nearestAirborne() < 0) return true;
-  if ((p == 4 || p == 6) && planeCount == 0) return true;
+  if ((p == 4 || p == 5) && planeCount == 0) return true;
   return false;
 }
 
 void drawPageFull() {
   prevBlipCount = 0;
-  sweepDeg = 0;
   switch (page) {
     case 0: radarStatic();   radarDynamic();   break;
     case 1: detailStatic();  detailDynamic();  break;
     case 2: trackStatic();   trackDynamic();   break;
     case 3: airportStatic(); airportDynamic(); break;
     case 4: mucOpsStatic();  mucOpsDynamic();  break;
-    case 5: mucWeatherStatic(); mucWeatherDynamic(); break;
-    case 6: spotterStatic();    spotterDynamic();    break;
+    case 5: spotterStatic();    spotterDynamic();    break;
+    case 6: mucWeatherStatic(); mucWeatherDynamic(); break;
   }
 }
 
@@ -1394,8 +1685,8 @@ void drawPageUpdate() {
     case 2: trackDynamic();   break;
     case 3: airportDynamic(); break;
     case 4: mucOpsDynamic();  break;
-    case 5: mucWeatherDynamic(); break;
-    case 6: spotterDynamic();    break;
+    case 5: spotterDynamic();    break;
+    case 6: mucWeatherDynamic(); break;
   }
 }
 
@@ -1411,7 +1702,7 @@ void prefetchRoutes() {
     if (depIdx[0] >= 0) fetchRoute(planes[depIdx[0]].flight, ROUTE_SLOT_MUC_BASE + 2);
     if (depIdx[1] >= 0) fetchRoute(planes[depIdx[1]].flight, ROUTE_SLOT_MUC_BASE + 3);
   }
-  if (page == 6) {
+  if (page == 5) {
     int ci = coolestIdx();
     if (ci >= 0) fetchRoute(planes[ci].flight, ROUTE_SLOT_SPOTTER);
   }
@@ -1421,7 +1712,7 @@ void prefetchRoutes() {
 void setup() {
   Serial.begin(115200);
   delay(300);
-  Serial.println("Plane Radar v6 (7 pages, refactored) booting...");
+  Serial.println("Plane Radar v8 (calm radar, card pages) booting...");
   mucE = (MUC_LON - HOME_LON) * 111.32f * cosf(deg2rad(MUC_LAT));
   mucN = (MUC_LAT - HOME_LAT) * 110.57f;
   SPI.begin(TFT_SCLK, -1, TFT_MOSI, TFT_CS);
@@ -1458,13 +1749,13 @@ void loop() {
       // one-shot per aircraft, so the same jet cannot hold the screen hostage.
       int alertIdx = coolestIdx();
       const char *alertLabel;
-      if (alertIdx >= 0 && page != 6 &&
+      if (alertIdx >= 0 && page != 5 &&
           coolScore(planes[alertIdx], &alertLabel) >= ALERT_SCORE &&
           strcmp(planes[alertIdx].flight, lastAlertCs) != 0) {
         copyStr(lastAlertCs, sizeof(lastAlertCs), planes[alertIdx].flight);
         Serial.printf("ALERT: %s -> spotter page (%s)\n",
                       planes[alertIdx].flight, alertLabel);
-        page = 6;
+        page = 5;
         lastPageSwitch = now;
         fetchRoute(planes[alertIdx].flight, ROUTE_SLOT_SPOTTER);
         drawPageFull();
@@ -1481,12 +1772,12 @@ void loop() {
     }
   }
 
-  if (page == 0 && now - lastSweepStep >= 35) {
-    lastSweepStep = now;
-    sweepStep();
+  if (page == 0 && now - lastRadarStep >= RADAR_STEP_MS) {
+    lastRadarStep = now;
+    radarStep();
   }
 
-  if (page == 3 && now - lastLiveStep >= 1400) {
+  if (page == 3 && now - lastLiveStep >= AIRPORT_STEP_MS) {
     lastLiveStep = now;
     airportDynamic();
   }

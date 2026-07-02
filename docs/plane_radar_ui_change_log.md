@@ -461,3 +461,89 @@ Verified:
 
 - Compiled clean in Arduino IDE 2.x and flashed to the ESP32-C3 over COM5.
 - Live data confirmed on-device after flash (aircraft fetch, route lookups, METAR).
+
+## v7 Polish Pass (Product-Quality UI)
+
+Code-only pass (compile/flash/push done by the user).
+
+Bezel / jitter fixes:
+
+- New `clearInner()`: pages now clear their content with a radius-105 circle instead of large `fillRect` calls. Any rect wide enough for content has corners beyond the bezel radius (e.g. corner at r=124 vs bezel at r=115) — this was the root cause of the outer ring getting visibly "eaten". Compass letters are re-drawn after each clear.
+- Dead-reckoning is quantized to 0.4 s buckets, so aircraft hold stable pixel positions between visible steps instead of shimmering ±1 px on every 35 ms sweep frame.
+- Radar altitude-tag erase blips are capped to the inner 75% of the radar so widened erases can never reach the bezel.
+
+Radar page:
+
+- Two-line shielded readout: destination tag plus an altitude + distance line.
+- Tiny altitude tags on the four nearest aircraft (inner radar only).
+
+Flight page:
+
+- "NEAREST FLIGHT" heading removed; that row now shows the human-readable aircraft name via a new ICAO-code-to-name table (~56 types), with graceful fallback to the raw code.
+
+Track page:
+
+- Heading removed; callsign + route codes moved to the top band.
+- Zoom widened (1.8x, min 12 km) so MUC arrivals/departures fit on screen.
+- Munich Airport drawn in-view as mini runway strokes labeled "MUC".
+- Labeled live line (`ALT .. SPD ..`) above the CPA readout.
+
+Airport page:
+
+- Styled header ("MUNICH AIRPORT" + EDDM line) that doubles as a live field-wind chip when a METAR is cached.
+
+MUC OPS board:
+
+- COOL footer removed (the spotter page owns that job); the board now shows exactly NEXT/THEN per side with three clean lines per cell: callsign, "in N min" / "N km out" / "on field", route or type+altitude fallback.
+
+Weather page:
+
+- "EDDM WEATHER" headline removed; six data rows now: WIND, VIS, CLOUD (lowest layer + ceiling detection), TEMP, QNH, WX (rain/snow/fog/etc. from present-weather groups).
+- METAR-derived field status strip (NORMAL / MARGINAL / LOW VIS OPS) using standard visibility+ceiling bands. A fake 12 h delay percentage was deliberately NOT added: no free API provides trustworthy delay statistics.
+
+Spotter page:
+
+- "WHY:" prefix replaced by one concise line combining what the aircraft is and its live MUC status: inbound with ETA minutes, "AT MUC" for field traffic, "LEAVING MUC" for climbouts, or distance for notable passers-by.
+
+Not yet verified (user to do): compile in Arduino IDE, flash, visual check of all seven pages.
+
+## v8 Polish Pass (Calm Radar + Card Pages)
+
+Driven by on-device feedback and a reference radar-scope photo.
+
+Global:
+
+- Chrome rule established: bezel ring + compass letters live only on map-like pages (RADAR, TRACK, MUC MAP). Text pages (FLIGHT, MUC OPS, SPOTTER, MUC WX) are bezel-less and use the full round panel.
+- Page order changed: SPOTTER moved to slot 6, MUC WX is now the last page.
+- New palette entry `C_PURPLE` for stationary/ground traffic.
+
+RADAR page:
+
+- The rotating sweep beam was REMOVED (it caused most perceived jitter and fought with labels). Traffic now advances calmly by dead reckoning every ~1.2 s (`RADAR_STEP_MS`).
+- Rings re-aligned to exactly 1/3, 2/3, 3/3 of the traffic radius with per-ring km labels on the NE diagonal (old rings were subtly misaligned with the projection).
+- Reference-photo style stacked labels (callsign / type / altitude) on the nearest 3 aircraft, side-aware placement, clamped to the inner disc, each with its own erase blip (`pushBlip`, `MAX_BLIPS`).
+- Colour-coded traffic counter chip at the top ("N NEARBY": green quiet, amber normal, red busy) replaces the old destination readout.
+- Out-of-range contacts are now blue rim squares (consistent with the map page).
+
+FLIGHT + SPOTTER pages:
+
+- `flightCard` is now a full-panel card: no ring/compass, badge at top, callsign, airline row with a coloured roundel carrying the callsign prefix (compact "tail logo" stand-in; colour stable per carrier), route + cities, divider, 4 stat rows, LOOK direction strip.
+
+TRACK page:
+
+- Flown path drawn as a connected fading polyline instead of loose dots.
+
+MUC MAP page:
+
+- Fixed the header overwriting the "N" compass label (header moved below the compass pad band).
+- Bottom legend removed; marker grammar now: blue squares = clamped out-of-view traffic, purple circles = ground/stationary, green/red arrows = arrivals/departures with a highlight ring around the NEXT arrival and NEXT departure. High overflights are no longer drawn here.
+
+MUC OPS page:
+
+- Bezel-less full-width two-column board, wider cells, and a "data Ns ago" staleness footer.
+
+MUC WX page:
+
+- Bezel-less, tighter hierarchy, new RWY row estimating the runway direction in use from METAR wind (08 vs 26 operations), field-status strip retained.
+
+Not yet verified: compile + flash + on-device visual pass.
