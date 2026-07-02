@@ -1,67 +1,83 @@
-# ESP32-C3 Plane Radar Desk Display — Project Export
+# MUC Desk Radar — rev1.0
 
-This repository/package captures the working plan, hardware decisions, wiring diagrams, UI ideas, and V1 LED-ring firmware module for the USB-C-powered Plane Radar desk device.
+A polished Munich-aviation desk instrument: an ESP32-C3 Super Mini drives a
+1.28″ round GC9A01 display and shows **live ADS-B traffic** around your home,
+Munich Airport operations, aviation weather, and the coolest aircraft in the
+sky right now — like a tiny air-traffic-control scope for your desk.
 
-## Current project scope
+Live data comes from free, key-less APIs: [adsb.lol](https://api.adsb.lol)
+(positions), [adsbdb](https://www.adsbdb.com) (routes + airlines) and
+[aviationweather.gov](https://aviationweather.gov) (EDDM METAR).
 
-| Topic | Decision |
+## Pages
+
+| # | Page | What it shows |
+|---|------|---------------|
+| 1 | **HOME RADAR** | Live scope around your location: red north arrow, total contacts under it, DEP count (red) west, ARR count (green) east. Priority-picked labels (emergency > helicopter > special > nearest). |
+| 2 | **TRAFFIC BRIEF** | Five compact entries: nearest aircraft, coolest aircraft (with why), nearest helicopter, any emergency, next MUC arrival + departure. |
+| 3 | **NEAREST TRACK** | Follows the closest aircraft: flown path, projected course, MUC marker, bearing/altitude/speed, closest-point-of-approach prediction. |
+| 4 | **COOLEST TRACK** | Same live map, following the highest-scored aircraft (A380s, military, government callsigns, emergencies...) with a "why it's cool + MUC status" tag. |
+| 5 | **MUC MAP** | Airport diagram with both runways, live traffic flows with projected paths, ARR/DEP/GND counters, temperature + wind, and next arrival/departure rows (compare with FlightRadar24!). |
+| 6 | **WEATHER** | EDDM METAR decoded: wind, visibility, cloud/ceiling, temperature, QNH, weather, estimated runway in use, and a NORMAL/MARGINAL/LOW-VIS OPS status derived from visibility + ceiling. |
+| 7 | **LEGEND** | Every colour and symbol, drawn with the real rendering code. |
+
+Rare aircraft and emergency squawks **interrupt the carousel** and jump to the
+COOLEST page automatically (once per aircraft).
+
+## Colour & symbol legend
+
+| Symbol / colour | Meaning |
 |---|---|
-| Core project | ESP32-C3 internet-based aircraft/ADS-B desk radar |
-| Power | USB-C only for V1, no battery |
-| Display | 1.28 inch round GC9A01 SPI TFT, 240×240 |
-| Light ring | 72 mm WS2812B 24-LED addressable ring |
-| Enclosure style | Upright desk device, matte white 3D-printed body |
-| Controls | Latching power switch/button, separate MODE button |
-| Side port | Side-mounted USB-C power-only input |
-| GPS | Not needed; use configured static coordinates |
-| Buzzer | Deferred/optional; quiet/work-friendly visual alerts preferred |
-| Firmware focus | Start with LED-ring status module and basic hardware test |
+| red arrow | departing Munich (DEP) |
+| green arrow | arriving Munich (ARR) |
+| amber arrow | other traffic |
+| blue square (rim) | outside configured range, direction only |
+| star | special / notable aircraft |
+| rotor symbol | helicopter |
+| purple circle | on ground / stationary |
+| red "!" dot | emergency squawk (7700 / 7600 / 7500) |
 
-## File structure
+## Hardware
 
-| Path | Contents |
+- ESP32-C3 Super Mini
+- GC9A01 1.28″ round TFT, 240×240, SPI
+- optional momentary pushbutton (page control)
+- optional WS2812B ring + SN74AHCT125N (planned, see `firmware/led_status_v1`)
+
+### Wiring (display → ESP32-C3)
+
+| GC9A01 | ESP32-C3 |
 |---|---|
-| `firmware/led_status_v1/` | Arduino/FastLED V1 LED status module and demo sketch |
-| `hardware/diagrams/` | Fritzing-style wiring and schematic diagrams in PNG/SVG |
-| `hardware/reference_screenshots/` | Shopping/reference screenshots used during planning |
-| `design/renders/` | Product/UI concept renders generated during planning |
-| `docs/` | BOM, wiring notes, UI plan, firmware explanation, project summary |
-| `ai_coworking/` | Prompts and handoff notes for Claude Code / ChatGPT coworking |
-| `github/` | Suggested GitHub setup commands and repo notes |
+| VCC | **3V3** (never 5V!) |
+| GND | GND |
+| SCL/SCK | GPIO4 |
+| SDA/MOSI | GPIO3 |
+| DC | GPIO10 |
+| CS | GPIO1 |
+| RST | GPIO0 |
 
-## First hardware bring-up order
+Button: GPIO2 → button → GND (or set `PAGE_BUTTON_PIN 9` to use the onboard
+**BOOT button with zero soldering** — just don't hold it while plugging in USB).
 
-| Step | Action | Expected result |
-|---:|---|---|
-| 1 | Wire only ESP32-C3 + LED ring through SN74AHCT125N | LED demo runs without flicker |
-| 2 | Run `PlaneRadar_LEDStatus_Demo.ino` | All LED states cycle automatically |
-| 3 | Verify LED 0 physical orientation | LED 0 should be at top/North; adjust `LED_INDEX_OFFSET` if needed |
-| 4 | Add GC9A01 display wiring | Display test sketch works |
-| 5 | Flash/merge base ADS-B radar firmware | Radar page fetches aircraft data |
-| 6 | Integrate `LedContext` updates | LED ring reflects Wi-Fi/API/aircraft states |
+Full visual guide: [`docs/display_wiring_guide.html`](docs/display_wiring_guide.html)
+and [`docs/device_manual.html`](docs/device_manual.html).
 
-## Important warnings
+## Setup (gift-ready)
 
-| Warning | Reason |
-|---|---|
-| Do not power GC9A01 from 5 V in the final wiring | Use ESP32 3.3 V for display VCC/logic safety |
-| Keep LED brightness low initially | 24 WS2812B LEDs can draw high current at full white |
-| Use SN74AHCT125N or 74HCT125 for LED data | Reliable 3.3 V ESP32 → 5 V WS2812B signaling |
-| Side USB-C breakout may need CC resistors | USB-C-to-C sources require 5.1 kΩ pull-downs on CC1 and CC2 |
-| Do not power via side USB-C and ESP32 USB-C simultaneously during debugging | Avoid backfeeding unless power isolation is designed |
+1. Copy `firmware/plane_radar_v1/config.example.h` → `config.h`.
+2. Fill in the three **[REQUIRED]** blocks: Wi-Fi, latitude/longitude, home airport.
+3. Optional: tune range, zoom, auto-scroll, button pin (all documented in the file).
+4. Arduino IDE: board **ESP32C3 Dev Module**, *USB CDC On Boot: Enabled*,
+   libraries **Adafruit GC9A01A** + **ArduinoJson** → Upload.
 
-## Current firmware module
+## Controls
 
-The current module is not a full ADS-B firmware yet. It is the LED-ring status engine and demo test.
+- **Short press** — next page, and stay there (carousel pauses).
+- **Long press (1.2 s)** — resume the automatic carousel.
+- Presses are interrupt-latched, so they register even during network fetches.
 
-Main file to test first:
+## Docs
 
-```text
-firmware/led_status_v1/PlaneRadar_LEDStatus_Demo.ino
-```
-
-Required Arduino library:
-
-```text
-FastLED
-```
+- [`docs/plane_radar_ui_change_log.md`](docs/plane_radar_ui_change_log.md) — full design history
+- [`docs/device_manual.html`](docs/device_manual.html) — wiring schematic + legend, printable
+- [`docs/bom.md`](docs/bom.md), [`docs/wiring_notes.md`](docs/wiring_notes.md) — hardware planning
