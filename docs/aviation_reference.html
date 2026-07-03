@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MUC Desk Radar — Aviation Reference</title>
+<style>
+  :root{ --red:#ff4030; --green:#3cf078; --amber:#ffb000; --blue:#4896ff;
+         --purple:#ba60ff; --cyan:#38b8e0; --navy:#1a2440; --dim:#5a6478; }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Segoe UI',Arial,sans-serif;background:#f4f6fa;color:#22293a;
+       max-width:1000px;margin:0 auto;padding:26px}
+  h1{font-size:26px} .sub{color:var(--dim);margin:4px 0 20px}
+  h2{font-size:19px;margin:30px 0 12px;border-bottom:2px solid #d7deea;padding-bottom:6px}
+  h3{font-size:15px;margin:18px 0 8px;color:var(--navy)}
+  p{font-size:14px;line-height:1.55;margin:8px 0}
+  table{border-collapse:collapse;width:100%;background:#fff;border-radius:10px;
+        overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.08);margin:10px 0}
+  th,td{padding:8px 12px;text-align:left;font-size:13.5px;border-bottom:1px solid #edf1f7;vertical-align:top}
+  th{background:var(--navy);color:#fff;font-size:12.5px;letter-spacing:.4px}
+  td.c{font-family:Consolas,monospace;font-weight:700;white-space:nowrap}
+  .sym{font-size:17px;width:64px;text-align:center}
+  .pill{display:inline-block;padding:1px 9px;border-radius:6px;color:#fff;font-weight:700;font-size:12px}
+  .score{font-family:Consolas,monospace;font-weight:700;text-align:center;width:56px}
+  .warn{background:#fff3e0;border-left:5px solid #fb8c00;padding:11px 14px;border-radius:8px;margin:10px 0;font-size:13.5px}
+  .danger{background:#ffebee;border-left:5px solid #e53935}
+  .cols{display:flex;gap:20px;flex-wrap:wrap}
+  .cols>div{flex:1;min-width:300px}
+  @media print{body{background:#fff}}
+</style>
+</head>
+<body>
+
+<h1>✈ MUC Desk Radar — Aviation Reference</h1>
+<div class="sub">Everything the little round screen shows, decoded. rev1.0</div>
+
+<!-- ============================================================ -->
+<h2>1 · Screen legend</h2>
+<table>
+  <tr><th class="sym">Symbol</th><th>Meaning</th><th>Where</th></tr>
+  <tr><td class="sym" style="color:var(--red)">▲</td><td><b style="color:var(--red)">Red arrow</b> — departing Munich (DEP)</td><td>all map pages</td></tr>
+  <tr><td class="sym" style="color:var(--green)">▲</td><td><b style="color:#1d9e4e">Green arrow</b> — arriving at Munich (ARR)</td><td>all map pages</td></tr>
+  <tr><td class="sym" style="color:var(--amber)">▲</td><td><b style="color:#c98a00">Amber arrow</b> — other traffic, not MUC-related</td><td>all map pages</td></tr>
+  <tr><td class="sym" style="color:var(--blue)">■</td><td><b style="color:var(--blue)">Blue square on the rim</b> — beyond the configured range; direction cue only</td><td>radar, MUC map, tracking</td></tr>
+  <tr><td class="sym" style="color:var(--amber)">✳</td><td><b>Star</b> — special / notable aircraft (see section 6)</td><td>all map pages</td></tr>
+  <tr><td class="sym" style="color:var(--cyan)">✚</td><td><b>Rotor symbol</b> — helicopter</td><td>all map pages</td></tr>
+  <tr><td class="sym" style="color:var(--purple)">●</td><td><b style="color:var(--purple)">Purple circle</b> — on the ground / parked</td><td>MUC map</td></tr>
+  <tr><td class="sym"><span class="pill" style="background:var(--red)">!</span></td><td><b>Red alert dot</b> — emergency squawk (see section 3)</td><td>everywhere, jumps the page</td></tr>
+  <tr><td class="sym" style="color:var(--amber)">▲<sub>yellow</sub></td><td><b>Yellow aircraft on a runway slab</b> — on the runway right now (bigger = widebody)</td><td>MUC map</td></tr>
+  <tr><td class="sym" style="color:var(--red)">▲N</td><td><b>Red north arrow</b> + white total / red DEP west / green ARR east</td><td>home radar</td></tr>
+</table>
+
+<!-- ============================================================ -->
+<h2>2 · Flight data fields</h2>
+<table>
+  <tr><th style="width:110px">Field</th><th>Meaning</th></tr>
+  <tr><td class="c">DLH1913</td><td><b>Callsign</b> — the flight's radio identity. First 3 letters = airline ICAO code (DLH = Lufthansa, AUA = Austrian, RYR = Ryanair), rest = flight number/suffix. Private aircraft show their registration (D-EABC, OE-KTM, N123AB).</td></tr>
+  <tr><td class="c">OLB &gt; MUC</td><td><b>Route</b> — origin &gt; destination as IATA airport codes (OLB = Olbia, MUC = Munich, JFK = New York). Looked up from the callsign; "route unknown" is normal for private, military, and some charter flights.</td></tr>
+  <tr><td class="c">DIST</td><td><b>Distance</b> from your home position to the aircraft, in km (ground distance, not slant range).</td></tr>
+  <tr><td class="c">BRG</td><td><b>Bearing</b> — the compass direction from YOU to the aircraft, in degrees (0=N, 90=E, 180=S, 270=W) plus an 8-way compass word. "BRG 126 SE" = look southeast.</td></tr>
+  <tr><td class="c">ALT</td><td><b>Altitude</b> in metres (converted from the barometric altitude broadcast in feet). Cruise is ~10-12 km; on final approach into MUC you'll see a few hundred metres.</td></tr>
+  <tr><td class="c">V/S</td><td><b>Vertical speed</b> in m/s. Positive = climbing (shown bright), negative = descending (amber). ±0 = level flight. A typical descent is −3 to −8 m/s.</td></tr>
+  <tr><td class="c">SPD</td><td><b>Ground speed</b> in km/h (converted from knots). Jets cruise ~800-900 km/h, fly approach at ~250-300 km/h; small props ~150-250 km/h.</td></tr>
+  <tr><td class="c">TRK</td><td><b>Track</b> — the direction the aircraft is actually moving over the ground (not where its nose points). The aircraft symbol and its path stub point this way.</td></tr>
+  <tr><td class="c">SQK</td><td><b>Squawk</b> — the 4-digit transponder code (section 3).</td></tr>
+  <tr><td class="c">A/C</td><td><b>Aircraft type + registration</b> — ICAO type designator (section 5) and the tail number.</td></tr>
+  <tr><td class="c">CPA</td><td><b>Closest Point of Approach</b> — prediction of how close the aircraft will get <i>to you</i> and when, computed from its current track and speed. "CPA 3.1km in 1m16s" = in 76 seconds it will be 3.1 km away, then recede. "away now" = already past its closest point.</td></tr>
+  <tr><td class="c">in 4 min</td><td><b>ETA to MUC</b> — distance to the airport divided by current ground speed. An estimate, not the official landing time (no holding patterns included!).</td></tr>
+  <tr><td class="c">LOOK SE</td><td>Shortcut of BRG: which way to turn your head to see the aircraft out the window.</td></tr>
+</table>
+
+<!-- ============================================================ -->
+<h2>3 · Squawk codes</h2>
+<p>The <b>squawk</b> is a 4-digit octal code (0000–7777) that air traffic control assigns to each flight so it shows uniquely on their radar. Most codes are arbitrary ATC assignments — but a few have fixed, universal meanings:</p>
+<table>
+  <tr><th style="width:90px">Code</th><th>Meaning</th></tr>
+  <tr><td class="c" style="color:var(--red)">7700</td><td><b>General emergency</b> — engine trouble, medical emergency, anything requiring priority. The radar jumps to this aircraft immediately and marks it with the red "!" dot.</td></tr>
+  <tr><td class="c" style="color:var(--red)">7600</td><td><b>Radio failure</b> — the aircraft can't communicate with ATC.</td></tr>
+  <tr><td class="c" style="color:var(--red)">7500</td><td><b>Unlawful interference</b> (hijacking). Extremely rare.</td></tr>
+  <tr><td class="c">7000</td><td><b>VFR conspicuity</b> (Europe) — small aircraft flying visually without an assigned code. You'll see this on most Cessnas and gliders around Freising.</td></tr>
+  <tr><td class="c">2000</td><td>Default code when entering airspace without an assignment (common on IFR flights before ATC assigns one).</td></tr>
+  <tr><td class="c">1000</td><td>IFR flight where the Mode-S transponder ID is used instead of a discrete code — very common around Munich.</td></tr>
+  <tr><td class="c">0020/0023...</td><td>Codes in the 00xx block are often rescue helicopters and police in Germany (e.g. 0020 = rescue helicopter / SAR).</td></tr>
+</table>
+<div class="warn danger">If you ever see <b>7500/7600/7700</b> on the device, it's real: the aircraft's crew set it deliberately. 7700 near MUC usually means a priority landing — watch the arrival flow change around it.</div>
+
+<!-- ============================================================ -->
+<h2>4 · Weather (METAR) decoder</h2>
+<p>The WEATHER page decodes the official <b>METAR</b> for EDDM (Munich). A METAR is a coded hourly/half-hourly airport observation. Example:</p>
+<p class="c" style="font-family:Consolas,monospace;background:#fff;padding:10px;border-radius:8px">METAR EDDM 021620Z AUTO 26010KT CAVOK 26/12 Q1020</p>
+<table>
+  <tr><th style="width:120px">Token</th><th>Meaning</th></tr>
+  <tr><td class="c">EDDM</td><td>Station: Munich Airport (ICAO code; MUC is the IATA code).</td></tr>
+  <tr><td class="c">021620Z</td><td>Day 02 of the month, 16:20 UTC ("Zulu" time).</td></tr>
+  <tr><td class="c">26010KT</td><td><b>Wind:</b> FROM 260° (west-southwest) at 10 knots (~19 km/h). "G24" = gusts to 24 kt. "VRB03KT" = variable direction, 3 kt.</td></tr>
+  <tr><td class="c">9999 / 4000</td><td><b>Visibility</b> in metres; 9999 means 10 km or more.</td></tr>
+  <tr><td class="c">CAVOK</td><td>"Ceiling And Visibility OK" — visibility ≥10 km, no cloud below 5000 ft, no significant weather. The nicest word in aviation.</td></tr>
+  <tr><td class="c">FEW040<br>SCT025<br>BKN018<br>OVC004</td><td><b>Cloud layers:</b> coverage + height in hundreds of feet.<br>FEW = 1-2/8 of the sky, SCT (scattered) = 3-4/8, BKN (broken) = 5-7/8, OVC (overcast) = 8/8.<br>BKN018 = broken layer at 1800 ft. The lowest BKN/OVC layer is the <b>ceiling</b>. NSC/NCD = no significant cloud.</td></tr>
+  <tr><td class="c">26/12</td><td><b>Temperature / dew point</b> in °C. M05 = −5 °C. Close together = fog risk.</td></tr>
+  <tr><td class="c">Q1020</td><td><b>QNH</b> — sea-level air pressure in hPa; pilots set their altimeters to it. Standard is 1013.</td></tr>
+  <tr><td class="c">RA SN FG BR<br>DZ TS SH GR HZ</td><td><b>Weather:</b> RA rain, SN snow, FG fog, BR mist, DZ drizzle, TS thunderstorm, SH showers, GR hail, HZ haze. Prefix "−" light, "+" heavy: −RA = light rain, +TSRA = heavy thunderstorm with rain.</td></tr>
+</table>
+
+<h3>Field status (bottom pill)</h3>
+<table>
+  <tr><th style="width:150px">Status</th><th>Rule (from visibility + ceiling)</th></tr>
+  <tr><td><span class="pill" style="background:#1d9e4e">NORMAL OPS</span></td><td>Visibility ≥ 8 km AND ceiling ≥ 3000 ft (or no ceiling) — VFR-like conditions, normal flow.</td></tr>
+  <tr><td><span class="pill" style="background:#c98a00">MARGINAL OPS</span></td><td>Visibility ≥ 3 km AND ceiling ≥ 1000 ft — expect instrument approaches, possible small delays.</td></tr>
+  <tr><td><span class="pill" style="background:var(--red)">LOW VIS OPS</span></td><td>Below that — low-visibility procedures: bigger spacing between arrivals, delays likely.</td></tr>
+</table>
+
+<h3>Runway in use (RWY row)</h3>
+<p>Aircraft take off and land <b>into the wind</b>. Munich's parallel runways point 082°/262°, so wind from the west (typical) → <b>26 L/R</b> operations (landings approach from the east); wind from the east → <b>08 L/R</b>. The device estimates this from the METAR wind direction; "VRB" or calm wind gives no answer.</p>
+
+<!-- ============================================================ -->
+<h2>5 · Aircraft type codes (ICAO designators)</h2>
+<p>ADS-B broadcasts a compact <b>ICAO type designator</b>. The device expands the common ones to full names; here is the built-in table:</p>
+<div class="cols">
+<div>
+<table>
+  <tr><th>Code</th><th>Aircraft</th></tr>
+  <tr><td class="c">A19N/A20N/A21N</td><td>Airbus A319/320/321neo</td></tr>
+  <tr><td class="c">A319/A320/A321</td><td>Airbus A319/320/321</td></tr>
+  <tr><td class="c">A332/A333/A339</td><td>Airbus A330 family</td></tr>
+  <tr><td class="c">A343/A345/A346</td><td>Airbus A340 family</td></tr>
+  <tr><td class="c">A359/A35K</td><td>Airbus A350-900/-1000</td></tr>
+  <tr><td class="c">A388</td><td>Airbus A380</td></tr>
+  <tr><td class="c">BCS1/BCS3</td><td>Airbus A220-100/-300</td></tr>
+  <tr><td class="c">B37M/B38M/B39M</td><td>Boeing 737 MAX 7/8/9</td></tr>
+  <tr><td class="c">B737/B738/B739</td><td>Boeing 737-700/-800/-900</td></tr>
+  <tr><td class="c">B744/B748</td><td>Boeing 747-400/-8</td></tr>
+  <tr><td class="c">B752/B763</td><td>Boeing 757/767</td></tr>
+  <tr><td class="c">B772/B77L/B773/B77W</td><td>Boeing 777 family</td></tr>
+  <tr><td class="c">B788/B789/B78X</td><td>Boeing 787-8/-9/-10</td></tr>
+</table>
+</div>
+<div>
+<table>
+  <tr><th>Code</th><th>Aircraft</th></tr>
+  <tr><td class="c">E190/E195/E290/E295</td><td>Embraer E-Jets</td></tr>
+  <tr><td class="c">CRJ9</td><td>Bombardier CRJ900</td></tr>
+  <tr><td class="c">AT76</td><td>ATR 72-600</td></tr>
+  <tr><td class="c">DH8D</td><td>Dash 8 Q400</td></tr>
+  <tr><td class="c">C172</td><td>Cessna 172 (flight schools!)</td></tr>
+  <tr><td class="c">PC12/PC24</td><td>Pilatus PC-12 / PC-24</td></tr>
+  <tr><td class="c">GLF6/GL7T/CL60/F2TH</td><td>Business jets (Gulfstream, Global, Challenger, Falcon)</td></tr>
+  <tr><td class="c">EC35/EC45 (H135/H145)</td><td>Airbus Helicopters — the ADAC rescue helicopters around Munich</td></tr>
+  <tr><td class="c">A400/C130/C17</td><td>Military transports</td></tr>
+  <tr><td class="c">A124/IL76</td><td>Antonov An-124 / Ilyushin Il-76</td></tr>
+  <tr><td class="c">MD11</td><td>MD-11 trijet (freighters)</td></tr>
+</table>
+</div>
+</div>
+<p>Unknown codes are shown as-is — look them up in the ICAO DOC 8643 database (skybrary.aero or contentzone.eurocontrol.int).</p>
+
+<!-- ============================================================ -->
+<h2>6 · Star ratings — what counts as "cool"</h2>
+<p>Every aircraft gets a <b>coolness score (0–100)</b>. Score ≥ 70 earns the ✳ star symbol; score ≥ 95 interrupts the carousel and jumps to the COOLEST page. Two ladders feed the score:</p>
+
+<h3>By aircraft type</h3>
+<table>
+  <tr><th class="score">Score</th><th>Type</th><th>Why it's special</th></tr>
+  <tr><td class="score" style="color:var(--red)">100</td><td class="c">A388</td><td>Airbus A380 superjumbo — the biggest passenger aircraft; Emirates sends one to MUC daily</td></tr>
+  <tr><td class="score" style="color:var(--red)">99</td><td class="c">A124</td><td>Antonov An-124 — giant Ukrainian/Russian cargo lifter, rare event</td></tr>
+  <tr><td class="score" style="color:var(--red)">99</td><td class="c">B52</td><td>B-52 bomber (you'd be having a very unusual day)</td></tr>
+  <tr><td class="score" style="color:var(--red)">96-97</td><td class="c">C5M, C17</td><td>US heavy military transports (C-5 Galaxy, C-17 Globemaster)</td></tr>
+  <tr><td class="score" style="color:var(--red)">95-96</td><td class="c">EUFI, F16, F35</td><td>Fighter jets (Eurofighter Typhoon flies from nearby Neuburg!)</td></tr>
+  <tr><td class="score" style="color:var(--red)">90-93</td><td class="c">A400, C130, IL76</td><td>Military transports</td></tr>
+  <tr><td class="score" style="color:var(--red)">92</td><td class="c">B744, B748</td><td>Boeing 747 "Queen of the Skies" — mostly freighters now</td></tr>
+  <tr><td class="score">86</td><td class="c">MD11</td><td>Rare trijet, freight only (Lufthansa Cargo history)</td></tr>
+  <tr><td class="score">68-72</td><td class="c">A343/A345/A346</td><td>Four-engine A340s — dying breed, Lufthansa still flies them from MUC</td></tr>
+  <tr><td class="score">45-55</td><td class="c">B777s, A350s, B787s</td><td>Big widebody twins — nice, but daily at MUC</td></tr>
+  <tr><td class="score">38-42</td><td class="c">A330s, B767</td><td>Smaller widebodies</td></tr>
+</table>
+
+<h3>By callsign prefix (government &amp; military operators)</h3>
+<table>
+  <tr><th class="score">Score</th><th>Prefix</th><th>Operator</th></tr>
+  <tr><td class="score" style="color:var(--red)">100</td><td class="c">AF1</td><td>Air Force One (if you see this, take a photo)</td></tr>
+  <tr><td class="score" style="color:var(--red)">98</td><td class="c">SAM</td><td>US "Special Air Mission" — government VIP flights</td></tr>
+  <tr><td class="score" style="color:var(--red)">95</td><td class="c">GAF</td><td>German Air Force (Luftwaffe) — including the government A350s</td></tr>
+  <tr><td class="score" style="color:var(--red)">95</td><td class="c">NATO</td><td>NATO flights (AWACS from Geilenkirchen etc.)</td></tr>
+  <tr><td class="score" style="color:var(--red)">92</td><td class="c">RRR</td><td>Royal Air Force</td></tr>
+  <tr><td class="score">88</td><td class="c">CTM / MMF</td><td>French Air Force / NATO tanker fleet</td></tr>
+  <tr><td class="score">85-86</td><td class="c">RCH / DUKE</td><td>US Air Force transport ("Reach") / US Army</td></tr>
+</table>
+
+<h3>By live behaviour (situational stars)</h3>
+<table>
+  <tr><th class="score">Score</th><th>Situation</th></tr>
+  <tr><td class="score" style="color:var(--red)">100</td><td><b>Emergency squawk</b> 7700/7600/7500 — always wins, always interrupts</td></tr>
+  <tr><td class="score">82</td><td><b>Low overhead pass</b> — within 4 km of you below ~1000 m</td></tr>
+  <tr><td class="score">78</td><td><b>Fast &amp; low</b> — over 430 kt below ~6000 m (military-style flying)</td></tr>
+  <tr><td class="score">70</td><td><b>MUC final approach</b> — descending inbound inside 16 km of the airport</td></tr>
+  <tr><td class="score">66</td><td><b>MUC climbout</b> — climbing away inside 14 km of the airport</td></tr>
+</table>
+
+<p class="sub" style="margin-top:24px">MUC Desk Radar rev1.0 · data: adsb.lol / adsbdb.com / aviationweather.gov · this page: docs/aviation_reference.html</p>
+
+</body>
+</html>

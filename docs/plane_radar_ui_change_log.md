@@ -15,6 +15,227 @@ This document records the firmware UI changes made to `firmware/plane_radar_v1/p
 - Make the spotter page explain why a flight is interesting.
 - Add comments explaining why blocks exist, not just what each line does.
 
+## rev1.1.16 (Persistent Three-Label Radar Picker)
+
+This pass makes the home radar try harder to show three labels whenever enough visible aircraft exist.
+
+- Bumped the sketch header and boot log to `rev1.1.16`.
+- Replaced the fixed three-label index picker with a longer candidate queue.
+- Preserved the existing first preference: one best candidate from each visible range band.
+- Added fallback candidates behind those preferred picks, ordered by the same emergency / helicopter / cool / MUC / nearest priority logic.
+- Candidate selection now uses the same dead-reckoned live position as the marker renderer, so anything visibly inside the current zoom can be considered for a label.
+- Moved label drawing into a second pass so candidates are tried in priority order after all aircraft markers are drawn.
+- If a preferred label cannot fit safely, the renderer now tries the next candidate instead of leaving that label slot empty.
+- Airborne aircraft without reported altitude can now still be labelled with `--m`.
+- Did not update any HTML files, per the current markdown-only documentation preference.
+- Verification: `git diff --check` passes, brace balance is `opens=496 closes=496`, and Arduino compile was not run because `arduino-cli` is not available on PATH in this shell.
+
+## rev1.1.15 (South Marker And Rim Aircraft Tuning)
+
+This pass lightly tunes the home radar marker styling after the south range marker landed well.
+
+- Bumped the sketch header and boot log to `rev1.1.15`.
+- Changed the south `20km` / `40km` / `60km` scope label from white to a smaller-feeling dim green.
+- Tightened the south scope label background pad and made the south pointer darker.
+- Added dedicated `C_SCOPE_TEXT`, `C_SCOPE_ARROW`, and `C_EDGE_BLUE` palette entries so these details can be tuned independently.
+- Changed out-of-range home-radar rim contacts from line chevrons to solid blue mini aircraft arrows.
+- Did not update any HTML files, per the current markdown-only documentation preference.
+- Verification: `git diff --check` passes, brace balance is `opens=491 closes=491`, and Arduino compile was not run because `arduino-cli` is not available on PATH in this shell.
+
+## rev1.1.14 (South Scope Marker)
+
+This pass keeps the inner range ruler meaningful while moving the headline range value to the south compass point.
+
+- Bumped the sketch header and boot log to `rev1.1.14`.
+- Kept the inner range labels on the east-side ruler at the actual ring radii.
+- Moved the active outer range value, `20km`, `40km`, or `60km`, to the south point of the radar.
+- Added a small open south compass pointer under the outer range value.
+- Updated the radar text shield so aircraft symbols and label boxes avoid both the inner east ruler and the new south scope marker.
+- Did not update any HTML files, per the current markdown-only documentation preference.
+- Verification: `git diff --check` passes, brace balance is `opens=491 closes=491`, and Arduino compile was not run because `arduino-cli` is not available on PATH in this shell.
+
+## rev1.1.13 (Weighted 5-Minute Home Radar Zoom Window)
+
+This pass replaces the equal-time zoom tour with a busyness-weighted 5-minute window.
+
+- Bumped the sketch header and boot log to `rev1.1.13`.
+- Replaced the old `10s / 10s / 10s` equal zoom cycle with a `300000 ms` weighted window.
+- The selected best zoom gets `50%` of the window, the next-best zoom gets `30%`, and the remaining context zoom gets `20%`.
+- Busy traffic uses `20 km` as the primary zoom, then `40 km`, then `60 km`.
+- Moderate traffic uses `40 km` as the primary zoom, then `20 km`, then `60 km`.
+- Quiet traffic uses `60 km` as the primary zoom, then `40 km`, then `20 km`.
+- Added `RADAR_ZOOM_WINDOW_MS` to `config.example.h`; `RADAR_ZOOM_CYCLE_ENABLED` still controls whether the weighted tour is active.
+- Traffic-density auto zoom remains available if `RADAR_ZOOM_CYCLE_ENABLED` is set to `0`.
+- Did not update any HTML files, per the current markdown-only documentation preference.
+- Verification: `git diff --check` passes, brace balance is `opens=491 closes=491`, and Arduino compile was not run because `arduino-cli` is not available on PATH in this shell.
+
+## rev1.1.12 (Faint Blue Rim Bearing Arrows)
+
+This pass makes out-of-range contacts on the first page easier to understand without bringing back distracting blue dots.
+
+- Bumped the sketch header and boot log to `rev1.1.12`.
+- Changed home-radar edge contacts from single radial ticks into tiny faint blue bearing arrows.
+- Each edge marker now has a short shaft and two small arrowhead wings, so the bearing direction is clearer.
+- Slightly strengthened `C_BLUE_DIM` so the arrows remain visible through the round display lens while still staying behind in-range traffic visually.
+- Did not update any HTML files, per the current markdown-only documentation preference.
+- Verification: `git diff --check` passes, brace balance is `opens=484 closes=484`, and Arduino compile was not run because `arduino-cli` is not available on PATH in this shell.
+
+## rev1.1.11 (Truthful Home Radar Range Ruler)
+
+This pass keeps the zoom tour but makes the distance numbers physically correspond to the grid.
+
+- Bumped the sketch header and boot log to `rev1.1.11`.
+- Moved the range numbers from a floating caption to the actual east-side ring positions.
+- The labels still read as a straight ruler, but `5 / 10 / 20km`, `10 / 20 / 40km`, and `20 / 40 / 60km` now line up with the real grid radii.
+- Changed the protected text zone to cover the new east-side range ruler instead of the old top caption.
+- Made the centre receiver dot smaller and dimmer using a dedicated `C_CENTER_DOT` colour.
+- Did not update any HTML files, per the current markdown-only documentation preference.
+- Verification: `git diff --check` passes, brace balance is `opens=484 closes=484`, and Arduino compile was not run because `arduino-cli` is not available on PATH in this shell.
+
+## rev1.1.10 (Home Radar Zoom Tour)
+
+This pass changes the first page from only traffic-density auto zoom to a deliberate three-step zoom tour.
+
+- Bumped the sketch header and boot log to `rev1.1.10`.
+- Added `RADAR_ZOOM_CYCLE_ENABLED`, defaulting to on.
+- Added `RADAR_ZOOM_CYCLE_MS`, defaulting to `10000` ms, so each home-radar zoom position stays on screen for about 10 seconds. This equal-time timing was later replaced by the weighted 5-minute window in `rev1.1.13`.
+- The radar page now cycles through close `20 km`, medium `40 km`, and wide `60 km` scopes while still using the same wide ADS-B fetch.
+- Returning to the radar page restarts the cycle at close range, so labels are readable first before the view opens out.
+- Traffic-density auto zoom remains in the code as a fallback if `RADAR_ZOOM_CYCLE_ENABLED` is set to `0`.
+- Updated `config.example.h` with the new zoom-tour options.
+- Did not update any HTML files, per the current markdown-only documentation preference.
+- Verification: `git diff --check` passes, brace balance is `opens=483 closes=483`, and Arduino compile was not run because `arduino-cli` is not available on PATH in this shell.
+
+## rev1.1.9 (Home Radar Range Strip And Quieter Edge Traffic)
+
+This pass makes the first page easier to read when many out-of-range aircraft are present.
+
+- Bumped the sketch header and boot log to `rev1.1.9`.
+- Changed the range labels from separate diagonal ring numbers to a compact scale readout. This was later refined in `rev1.1.11` so the readout positions correspond to the actual grid radii.
+- The auto-zoom range scale now reads as `5 10 20km` for close mode, `10 20 40km` for medium mode, and `20 40 60km` for wide mode.
+- The medium range is the `40 km` display scope: its three rings mean `10 km`, `20 km`, and `40 km`.
+- Dimmed the out-of-range blue colour and changed edge contacts from circles into tiny radial bearing ticks.
+- Added a protected text zone for the range strip so aircraft symbols and label boxes do not draw through it.
+- Did not update any HTML files, per the current markdown-only documentation preference.
+- Verification: `git diff --check` passes, brace balance is `opens=478 closes=478`, and Arduino compile was not run because `arduino-cli` is not available on PATH in this shell.
+
+## rev1.1.8 (Standalone Boot And ADS-B Retry Status)
+
+This pass fixes the "stuck at aircraft data fetching" behavior seen when the device boots standalone on USB power and uses Wi-Fi for internet.
+
+- Bumped the sketch header and boot log to `rev1.1.8`.
+- Removed the full-screen `fetching aircraft data...` splash after Wi-Fi connects.
+- The radar page now draws immediately after Wi-Fi is ready, even before the first successful ADS-B packet.
+- Added a small radar-page status pill that shows `waiting ADS-B` during startup or a compact retry reason such as `retry HTTP -11`, `retry HTTP 500`, `retry begin fail`, or `retry JSON fail`.
+- Added serial diagnostics for ADS-B begin failures, HTTP failures, and JSON parse failures.
+- Split `lastFetchAttempt` from `lastFetch`: failed HTTP requests now throttle retries without making stale aircraft positions look freshly received.
+- Auto-scroll waits for the first successful ADS-B response so the startup diagnostic stays visible instead of rotating away while the feed is unavailable.
+- Did not update any HTML files, per the current markdown-only documentation preference.
+- Verification: `git diff --check` passes, brace balance is `opens=481 closes=481`, and Arduino compile was not run because `arduino-cli` is not available on PATH in this shell.
+
+## rev1.1.7 (Home Radar Auto-Zoom And Label Readability)
+
+This pass keeps the wide `60 km` ADS-B fetch but lets the first page choose a cleaner display range based on current traffic density.
+
+- Bumped the sketch header and boot log to `rev1.1.7`.
+- Added home-radar auto zoom: quiet skies show the full `60 km` view, moderate traffic uses `40 km`, and busy traffic uses `20 km`.
+- Added hysteresis to the auto-zoom logic so the range does not bounce every fetch when traffic is close to a threshold.
+- Changed the radar rings to use readable dynamic values: `5 / 10 / 20 km`, `10 / 20 / 40 km`, or `20 / 40 / 60 km`.
+- Removed the MUC blue reference dot from the main radar.
+- Changed the receiver marker to a small white centre dot drawn underneath aircraft, so planes can pass over it.
+- Reverted out-of-range markers from tiny arrows to faint blue rim circles.
+- Added small background pads behind aircraft label stacks so callsign/type/altitude text is easier to read over the grid.
+- Confirmed the desk behavior is still standalone: the device fetches over Wi-Fi every `FETCH_INTERVAL_MS` and animates/dead-reckons between fetches, so after flashing it only needs USB-C power, not a PC connection.
+- Did not update the HTML reference page, per the current markdown-only documentation preference.
+- Verification: `git diff --check` passes, brace balance is `opens=478 closes=478`, and Arduino compile was not run because `arduino-cli` is not available on PATH in this shell.
+
+## rev1.1.6 (Final Home Radar Polish)
+
+This pass only adjusts the first radar page and leaves the existing extra/source pages alone.
+
+- Bumped the sketch header and boot log to `rev1.1.6`.
+- Added one shared counter helper for the home radar so the total, DEP, and ARR numbers always render at the same size; DEP stays red and ARR stays green.
+- Added padded counter backgrounds so the top/side numbers are redrawn last and stay readable when aircraft move underneath.
+- Moved the `60` range marker to the top-right arc and redrew range labels as overlays so grid/range strokes no longer cut through the number.
+- Added small blue reference dots for the receiver location and Munich Airport on the main radar.
+- Replaced out-of-range blue rim squares with faint blue bearing arrows that point along the aircraft bearing from the receiver.
+- Did not update the HTML reference page, per the current markdown-only documentation preference.
+- Verification: `git diff --check` passes, brace balance is `opens=467 closes=467`, and Arduino compile was not run because `arduino-cli` is not available on PATH in this shell.
+
+## rev1.1.5 (Three Appended Source Pages)
+
+This pass keeps the existing six pages in their current order and behavior, then appends three new source-specific pages based on the API/data-source review.
+
+- Bumped the sketch header and boot log to `rev1.1.5`.
+- Left the existing pages alone: `RADAR`, `MUC MAP`, `TRAFFIC BRIEF`, `NEAREST`, `COOLEST`, and `MUC WX` still come first and keep their existing dwell times.
+- Added `MUC TAF`, a slow-refresh AviationWeather forecast page showing valid period, first wind, visibility, cloud, weather, change groups, and clipped raw TAF text.
+- Added `MUC FIELD`, a no-network OurAirports-derived facts page for `EDDM / MUC`, elevation, both 4000 x 60 m concrete runways, ATIS, and north/south tower frequencies.
+- Added `OPEN SKY`, an optional regional cross-check page that counts OpenSky states in a MUC-centered bounding box by source/category: ADS-B, MLAT, FLARM, heavy, rotor, ground, and stale.
+- Added optional `OPENSKY_ENABLED` and `OPENSKY_RANGE_KM` settings to `config.example.h`.
+- Made the new source-page rows chord-aware so text near the upper/lower curve of the round display is clipped before it can touch the glass edge.
+- Did not update the HTML reference page, per the new preference to update markdown only unless HTML is explicitly requested.
+- Verification: `git diff --check` passes. Arduino compile was not run because `arduino-cli` is not available on PATH in this shell.
+
+## rev1.1.4 (60 km Radar And Airport Scope Pass)
+
+This pass makes the display less noisy than the 100 km experiment while giving the main and airport pages a wider, more useful 60 km scope.
+
+- Bumped the sketch header and boot log to `rev1.1.4`.
+- Changed the live radar scope to `60 km`, so the three rings read as `20 / 40 / 60 km`.
+- Changed the default ADS-B fetch and Traffic Brief activity radius from `100 km` to `60 km`.
+- Updated the local `config.h` range override to `60.0`, otherwise the sketch would still boot into the old 20 km scope.
+- Added a fainter blue edge color for out-of-range/clamped contacts so rim squares are less distracting.
+- Changed main-radar label selection to prefer one label per range band: `0-20 km`, `20-40 km`, and `40-60 km`, with fallback fill if a band is empty.
+- Relaxed label placement slightly so the selected three labels have a better chance of fitting on the round screen.
+- Changed the fetch storage policy to keep the closest `64` aircraft from the full response instead of whichever contacts arrived first.
+- Reworked `MUC MAP` so runways remain as a centered readable schematic while aircraft are plotted on a real 60 km MUC-centred traffic scope.
+- Removed the pale airport range circle; aircraft outside the 60 km airport scope clamp to the invisible rim in faint blue.
+- `MUC MAP` now draws all stored aircraft around the airport and labels only the next likely arrival and departure.
+- Verification: `git diff --check` passes. Arduino compile was not run because `arduino-cli` is not available on PATH in this shell.
+
+## rev1.1.3 (Dark UI Cleanup Pass)
+
+This pass returns the firmware to one dark glass-cockpit palette and tightens the live airport/traffic pages.
+
+- Bumped the sketch header and boot log to `rev1.1.3`.
+- Removed the experimental alternate display theme and returned to a single dark palette.
+- Kept named constants for the dim 20 km outer ring, runway slab, and weather status pill so page-specific fills remain easy to tune.
+- Made `MUC MAP` top counters the same small instrument size as the main radar counters.
+- Removed the separate `ARR`/`DEP` text rows from `MUC MAP`; the latest arrival and departure now get two-line labels attached directly to their aircraft symbols.
+- Enlarged and recentered the MUC runway map now that the old text rows are gone.
+- Added a bottom `100km activity` counter to `TRAFFIC BRIEF`, colored green/amber/red based on regional busyness.
+- Changed the `COOLEST` tracker reason line to show only the reason text, without the `WHY:` prefix.
+- Updated `docs/flight_radar_reference.html` back to the dark reference style and expanded the coolest-aircraft criteria explanation.
+- Verification for this pass: `git diff --check` passed, brace balance was `opens=428 closes=428`, the removed-theme cleanup search returned no matches, and `arduino-cli` was still not available on PATH from this shell.
+
+## rev1.1.1 (Fresh Layout Polish Pass)
+
+This pass re-read the current firmware and hardware-photo feedback as a fresh UI pass.
+
+- Bumped the sketch header and boot log to `rev1.1.1`.
+- Reordered the carousel to put `MUC MAP` second: `RADAR`, `MUC MAP`, `TRAFFIC BRIEF`, `NEAREST`, `COOLEST`, `MUC WX`.
+- Made the home radar north marker smaller and dimmed the 20 km outer range ring/label.
+- Recentered `TRAFFIC BRIEF` with a two-line `Traffic` / `nearby` heading and lower row placement.
+- Added optional `BRIEF_HELI_RANGE_KM` and `BRIEF_EMERGENCY_RANGE_KM` config values so helicopter/emergency rows can search beyond the 20 km radar scope.
+- Improved tracking extrapolation on both tracking pages by drawing from the current dead-reckoned aircraft position with speed-scaled projected course marks.
+- Changed the `COOLEST` tracker to keep its title and show a clearer `WHY:` line.
+- Reworked `MUC MAP` so the top is just color-coded numbers, ARR/DEP details sit above the map, the bottom separator is gone, and the range circle is lowered away from the temp/wind line.
+- Verification for this pass: `git diff --check` passed, brace balance was `opens=424 closes=424`, and `arduino-cli` was still not available on PATH from this shell.
+
+## rev1.1 (Hardware-Photo Polish Pass)
+
+This pass used the July 2 hardware photos as the source of truth.
+
+- Removed the standalone `LEGEND` page from the carousel. The symbol grammar is now documented in comments and this changelog, while the device spends its time on live pages.
+- Removed the cramped bottom `ARR`/`DEP` footer from `TRAFFIC BRIEF`; that page now shows only nearest, coolest, helicopter, and emergency rows.
+- Moved richer next-arrival and next-departure detail onto `MUC MAP`, with callsign, ETA/distance/GND status, and route or aircraft-type fallback.
+- Shrunk the home radar total/ARR/DEP counters back to small instrument-size text.
+- Removed the old compass-letter background pads that were cutting visible gaps into the radar grid and crosshair.
+- Kept the main radar range at `20.0 km` in both `config.example.h` and the local `config.h`.
+- Recentered the weather data block so the icon/label/value columns sit around the middle of the round display.
+- Kept page timing weighted toward the main radar and the two tracking/detail pages.
+- Verification for this pass: `git diff --check` passed, brace balance was `opens=414 closes=414`, and `arduino-cli` was not available on PATH from this shell, so a firmware compile could not be run here.
+
 ## FlightScnr Inspiration
 
 The FlightScnr project was used as UI inspiration, especially its sparse radar display, range rings, heading-aligned aircraft pips, compact flight detail pages, route lookups, and cached callsign details.
@@ -25,46 +246,49 @@ No FlightScnr code was copied into this firmware. The useful ideas were adapted 
 
 ## Page System
 
-The current firmware is a focused 7-page carousel:
+The current firmware is a focused 6-page carousel:
 
 1. `RADAR` - calm live aircraft radar around the configured home position.
-2. `SPECIAL` - emergencies, helicopters, and notable traffic near home/MUC.
-3. `NEAREST` - nearest aircraft detail, path, bearing, and closest point of approach.
-4. `MUC MAP` - Munich Airport runway close-up with live traffic and wind.
-5. `MUC OPS` - next two likely arrivals and next two likely departures.
-6. `SPOTTER` - coolest aircraft in the current traffic set, with a short reason.
-7. `MUC WX` - current EDDM weather from AviationWeather.
+2. `MUC MAP` - Munich Airport runway map with live traffic, next ARR/DEP rows, and wind.
+3. `TRAFFIC BRIEF` - nearest, coolest, helicopter, and emergency traffic rows.
+4. `NEAREST` - nearest aircraft detail, path, bearing, and closest point of approach.
+5. `COOLEST` - the most interesting aircraft, with live tracking and why it matters.
+6. `MUC WX` - current EDDM weather from AviationWeather.
 
 Why:
 
 - The old airport page was trying to show runway geometry, aircraft, arrival/departure counts, and text all at once.
-- Splitting radar, special traffic, nearest-aircraft tracking, airport map, airport operations, spotter context, and airport weather makes each page less crowded.
+- Splitting radar, traffic brief, nearest-aircraft tracking, coolest-aircraft tracking, airport map, and airport weather makes each page less crowded.
 - The small round display needs rigid page roles to stay readable.
 - A temporary 10-page API carousel existed earlier, but `OPEN SKY`, `MUC FIELD`, and `MUC STATUS` were removed because they added clutter, repeated data, or depended on limited paid/free-tier APIs.
+- A standalone legend page was also removed after real-device photos showed it cost useful carousel time. Symbol meanings now live in code comments and this changelog instead of taking a display page.
 
 ## Radar Page Changes
 
 ### Range Label
 
-- The main radar scope is back to a compact `RADAR_RANGE_KM = 20`.
-- With the 20 km scope, the outer ring represents 20 km and farther contacts become blue rim squares.
+- The main radar fetch remains wide, but the visible scope auto-zooms between `20 km`, `40 km`, and `60 km` based on traffic density.
+- The range label is now one straight scale strip under the top traffic count.
+- Close mode reads `5 10 20km`, medium mode reads `10 20 40km`, and wide mode reads `20 40 60km`.
+- Farther contacts on the home radar become tiny faint blue bearing ticks at the rim, not blue dots or squares.
 
 Why:
 
-- 30 km showed more traffic, but it made the home page too busy.
-- A 20 km scope matches the compact radar aesthetic better.
+- Dense traffic needs a zoomed-in view for labels, while quiet traffic can use the wider view without looking empty.
+- A straight scale strip is easier to read than loose ring numbers on a round display.
+- Bearing ticks keep out-of-range traffic visible without making the rim noisy.
 
 ### Sweep Animation
 
-- Replaced the expanding ping-circle sweep with a rotating radar beam.
-- The beam skips protected text zones.
-- The beam is drawn pixel-by-pixel so it does not erase or jag text.
+- The decorative sweep beam is removed.
+- Live traffic updates in calm dead-reckoned steps between ADS-B fetches.
+- Labels and counters redraw as stable overlays so moving graphics do not jag the text.
 
 Why:
 
 - The old expanding ring erased with background color and cut through callsigns and numbers.
 - Repainting all labels every sweep frame caused visible jitter.
-- A rotating beam feels more like a radar and can avoid text areas.
+- A calmer step animation is easier to read on the small GC9A01 panel.
 
 ### Live Aircraft Motion
 
