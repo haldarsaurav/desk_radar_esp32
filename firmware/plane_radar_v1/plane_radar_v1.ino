@@ -1,5 +1,5 @@
 /*
-  plane_radar_v1.ino — rev1.1.16 — Munich aviation desk radar (ESP32-C3 + GC9A01).
+  plane_radar_v1.ino — rev1.1.22 — Munich aviation desk radar (ESP32-C3 + GC9A01).
 
   Hardware: ESP32-C3 Super Mini + GC9A01 1.28" round display (240x240)
   Wiring:   see docs/display_wiring_guide.html and docs/device_manual.html
@@ -13,6 +13,93 @@
             your location. Everything else has sensible defaults (see the
             CONFIG DEFAULTS block below) so the device is gift-ready: a new
             owner only edits Wi-Fi + lat/lon + home airport.
+
+  =============================== rev1.1.22 ===============================
+  MUC MAP header final pass + prefetch bug fix:
+    - Bezel ring: full amber was overpowering -> super-faint dark amber.
+    - "AIRPORT" word removed; "MUC" grown to size-3 amber.
+    - BUG FIX: prefetchRoutes() never ran on manually held pages
+      (!manualPageHold guard), so a page you short-pressed to watch never
+      loaded its ARR/DEP routes ("fr/to" line) or METAR (temp+wind line).
+      Prefetch now runs on held pages too, still yielding to button presses.
+    - METAR is fetched once at boot, so the map header has temp+wind
+      immediately instead of after the first weather-page visit.
+  =========================================================================
+
+  =============================== rev1.1.21 ===============================
+  MUC MAP page, photo feedback on the rev1.1.20 header:
+    - "MUC" header is now amber and size-2 (same style as the weather page
+      header); AIRPORT sits a little lower beneath it. Counters moved down
+      with the taller stack (y 36 -> 45).
+    - Bezel circle recoloured green -> amber to match the MUC header.
+    - The two ARR/DEP labels never overlap each other any more: the second
+      label dodges vertically (or horizontally as a fallback) when its box
+      would intersect the first.
+    - METAR is now also kept warm from this page (was: weather page only),
+      so the header temp+wind line actually fills in.
+  =========================================================================
+
+  =============================== rev1.1.20 ===============================
+  MUC MAP page, header + ground traffic pass:
+    - Header stack added at the top, per the user's sketch: "MUC" (white),
+      "AIRPORT" (grey super small), temp + wind (super small), then the
+      DEP/GND/ARR counters. The whole stack paints last on background pads.
+    - The separate temp/wind line below the counters is gone — it lives in
+      the header now.
+    - Bezel tick marks removed on this page only ("NSEW grid small lines add
+      nothing") — plain circle remains; the home radar keeps its full bezel.
+    - Ground traffic de-clumped: smaller dots (r=2) with a 1 px background
+      separation ring, and dots within 4 px of an already drawn one are
+      skipped. The GND counter still counts every aircraft.
+    - Next ARR/DEP labels gained a third line: "fr XXX" (arrival origin) /
+      "to XXX" (departure destination) from the cached adsbdb route.
+  =========================================================================
+
+  =============================== rev1.1.19 ===============================
+  MUC MAP page, device-photo feedback pass:
+    - Removed the dashed 20 km view ring + NE km figure: on the panel it read
+      as a meaningless second cage inside the bezel. The bezel ring/ticks
+      remain the only edge chrome.
+    - Blue edge markers pushed to the true screen rim (r=99..105 around the
+      panel centre, same radius as the home radar) instead of hugging the
+      inner map circle — but they skip the counter/weather strip and the
+      south scope label, so instrument numbers are never overwritten.
+    - Removed the dashed track extrapolation for next ARR/DEP: a straight
+      line can't predict which runway an aircraft will take (approaches are
+      curved), so it suggested false certainty. Heading stubs + labels stay.
+    - South scope indicator added (home-radar grammar): dim-green "20km" +
+      small south pointer, announcing this page's visible range.
+    - Runway slabs thinner: half-width 5.0 -> 3.5 px.
+    - ARR/DEP/GND counters moved down (y 18 -> 26) so the digits no longer
+      clip the bezel ticks; temp/wind strip follows (y 32 -> 40).
+  =========================================================================
+
+  =============================== rev1.1.18 ===============================
+  MUC MAP page polish (page 2 locked-in pass):
+    - Fixed on-screen scope: 20 km to scale (MUC_MAP_VIEW_KM), 20-40 km as
+      blue edge markers (MUC_MAP_EDGE_KM), beyond 40 km hidden. Replaces the
+      old 60 km squeeze where approach traffic crawled at 1.4 px/km. The 60 km
+      radius is still used for ARR/DEP *detection* logic only.
+    - Runway schematic enlarged (MUC_MAP_SCALE 16 -> 22) so the slabs dominate.
+    - Dashed 20 km view ring + km figure, matching the home radar's outer ring.
+    - Edge contacts use the rev1.1.17 dot-with-outward-tick marker in the same
+      solid blue as the home radar (the faint squares looked broken).
+    - Next ARR/DEP keep their attached labels AND get a long dashed track
+      extrapolation, so their route into/out of the field reads instantly.
+    - ARR/DEP/GND counters + temp/wind strip now paint LAST on background
+      pads (they were occasionally overwritten by label leader lines), and
+      follow the home-radar left/right grammar: DEP west, ARR east.
+  =========================================================================
+
+  =============================== rev1.1.17 ===============================
+  Out-of-range rim marker, final form:
+    - The blue rim marker is now a small filled circle (r=2) with a short
+      radial tick pointing outward along the bearing-from-you. Every arrow
+      and triangle variant tried at this size (rev1.1.6/.9/.12/.15/.16)
+      rasterised as an irregular blob on the GC9A01; a filled circle is the
+      only primitive that stays clean at 4-5 px, and the tick preserves the
+      "more traffic out this way" direction cue.
+  =========================================================================
 
   =============================== rev1.1.16 ===============================
   Home-radar label persistence pass:
@@ -341,16 +428,30 @@
 #endif
 
 #ifndef ACTIVITY_RADIUS_KM
-#define ACTIVITY_RADIUS_KM 60.0f     // TRAFFIC BRIEF regional busyness count
+#define ACTIVITY_RADIUS_KM 100.0f    // TRAFFIC BRIEF busyness count around HOME
+                                     // (rev1.1.23: 60 -> 100 km wide-area mood
+                                     // gauge; display pages keep their own
+                                     // tighter ranges)
 #endif
 
 #ifndef ADSB_FETCH_RADIUS_KM
-#define ADSB_FETCH_RADIUS_KM ACTIVITY_RADIUS_KM // fetch matches the 60 km UI scope
+#define ADSB_FETCH_RADIUS_KM ACTIVITY_RADIUS_KM // fetch covers the count radius;
+                                     // storage still keeps only the closest
+                                     // MAX_AC aircraft, and the radar/MUC map
+                                     // clip to 60/40 km themselves
 #endif
 
+#ifndef MUC_MAP_VIEW_KM
+#define MUC_MAP_VIEW_KM 20.0f        // airport map on-screen scope: traffic
+#endif                               // inside this radius is drawn to scale
+
+#ifndef MUC_MAP_EDGE_KM
+#define MUC_MAP_EDGE_KM 40.0f        // 20-40 km contacts become blue edge
+#endif                               // markers; beyond 40 km: not drawn
+
 #ifndef MUC_MAP_RANGE_KM
-#define MUC_MAP_RANGE_KM 60.0f       // airport page traffic radius
-#endif
+#define MUC_MAP_RANGE_KM 60.0f       // ARR/DEP *detection* radius — logic
+#endif                               // only, NOT the on-screen map scope
 
 #ifndef BRIEF_HELI_RANGE_KM
 #define BRIEF_HELI_RANGE_KM 45.0f    // rotorcraft search can be wider than close-in labels
@@ -361,8 +462,8 @@
 #endif
 
 #ifndef MUC_MAP_SCALE
-#define MUC_MAP_SCALE 16.0f          // airport map px-per-km (26 = close-up,
-#endif                               // 16 shows the approach/departure flows)
+#define MUC_MAP_SCALE 22.0f          // runway-schematic px-per-km (rev1.1.18
+#endif                               // enlarged from 16 so the slabs dominate)
 
 #ifndef OPENSKY_ENABLED
 #define OPENSKY_ENABLED 1            // optional regional cross-check page
@@ -1247,6 +1348,26 @@ bool routeDestinationCode(const Aircraft &p, char *dst, size_t dstN) {
   arrow++;
   while (*arrow == ' ') arrow++;
   fitCopy(dst, dstN, arrow, 4);
+  return dst[0] != 0;
+}
+
+bool routeOriginCode(const Aircraft &p, char *dst, size_t dstN) {
+  // Counterpart of routeDestinationCode(): extract the origin ("AAA" from a
+  // cached "AAA > BBB" route). The MUC map's next-arrival label uses it to
+  // show where the flight is coming FROM (rev1.1.20).
+  if (dstN == 0) return false;
+  dst[0] = 0;
+  RouteCache *r = cachedRouteFor(p.flight);
+  if (!r || !r->codes[0]) return false;
+  const char *arrow = strchr(r->codes, '>');
+  if (!arrow) return false;
+  int n = 0;
+  while (r->codes + n < arrow && r->codes[n] != ' ' &&
+         n < (int)dstN - 1 && n < 4) {
+    dst[n] = r->codes[n];
+    n++;
+  }
+  dst[n] = 0;
   return dst[0] != 0;
 }
 
@@ -2220,18 +2341,22 @@ void radarPaint(bool record, bool drawLabels, bool drawGridLabels) {
       if (record) pushBlip(x, y, 15);
 
     } else {
-      // Out-of-range contact: a solid blue mini aircraft arrow pinned to the
-      // rim. The marker points along bearing-from-you (not aircraft track)
-      // because its job is to answer "which direction is outside the current
-      // zoom?" A filled triangle survives the GC9A01 lens better than the
-      // previous line chevron, and using a dedicated blue keeps it distinct
-      // from in-range arrival/departure colours.
+      // Out-of-range contact: a small blue dot with a short tick pointing
+      // OUTWARD along the bearing-from-you. Rationale (rev1.1.17): every
+      // arrow/triangle attempt at this size (4-6 px) rasterises as an
+      // irregular blob on the GC9A01 — a filled circle is the only primitive
+      // that stays perfectly round that small, and the radial tick still
+      // answers "more traffic out this way" without pretending to show the
+      // aircraft's own heading.
       float sx = sinf(b);
       float sy = -cosf(b);
-      x = 120 + (int)(sx * (RADAR_RIM_R - 3));
-      y = 120 + (int)(sy * (RADAR_RIM_R - 3));
-      planeTriangle(x, y, liveB, 4, C_EDGE_BLUE);
-      if (record) pushBlip(x, y, 8);
+      x = 120 + (int)(sx * (RADAR_RIM_R - 5));
+      y = 120 + (int)(sy * (RADAR_RIM_R - 5));
+      int tx = 120 + (int)(sx * (RADAR_RIM_R + 1));
+      int ty = 120 + (int)(sy * (RADAR_RIM_R + 1));
+      tft.drawLine(x, y, tx, ty, C_EDGE_BLUE);
+      tft.fillCircle(x, y, 2, C_EDGE_BLUE);
+      if (record) pushBlip(x, y, 9);
     }
   }
 
@@ -2378,6 +2503,26 @@ int bestCoolMucIdx(const int used[], int usedN) {
   return best;
 }
 
+const char *heliRoleName(const Aircraft &p) {
+  // Best-effort helicopter role from the callsign (rev1.1.23). German
+  // operator conventions around Munich:
+  //   CHX / CHRIST / HUMMEL = "Christoph" HEMS air-rescue fleet (ADAC/DRF)
+  //   SAR                   = military search-and-rescue
+  //   PIROL / BPO           = federal police (Bundespolizei)
+  //   POL / EDEL / SPREE / LIBEL = state police squadrons
+  // Unknown prefixes return nullptr — typically corporate/private machines.
+  if (!strncmp(p.flight, "CHX", 3) || !strncmp(p.flight, "CHRIST", 6) ||
+      !strncmp(p.flight, "HUMMEL", 6) || !strncmp(p.flight, "AMB", 3))
+    return "RESCUE";
+  if (!strncmp(p.flight, "SAR", 3)) return "SAR";
+  if (!strncmp(p.flight, "POL", 3) || !strncmp(p.flight, "PIROL", 5) ||
+      !strncmp(p.flight, "BPO", 3) || !strncmp(p.flight, "EDEL", 4) ||
+      !strncmp(p.flight, "SPREE", 5) || !strncmp(p.flight, "LIBEL", 5))
+    return "POLICE";
+  if (!strncmp(p.flight, "GAM", 3)) return "MILITARY";
+  return nullptr;
+}
+
 void specialReasonLine(const Aircraft &p, char *dst, size_t dstN) {
   const char *label;
   int score = coolScore(p, &label);
@@ -2387,8 +2532,15 @@ void specialReasonLine(const Aircraft &p, char *dst, size_t dstN) {
   if (isEmergencySquawk(p)) {
     snprintf(dst, dstN, "SQK %s %.1fkm %s", p.sqk, (double)p.distKm, compass8(p.bearingDeg));
   } else if (isHelicopter(p)) {
-    snprintf(dst, dstN, "%s %.1fkm %s", p.typ[0] ? p.typ : "HELI",
-             (double)p.distKm, compass8(p.bearingDeg));
+    // rev1.1.23: lead with the operator role (police/rescue/...) when the
+    // callsign gives it away; otherwise "CIVIL" + type.
+    const char *role = heliRoleName(p);
+    if (role)
+      snprintf(dst, dstN, "%s %s %.1fkm %s", role, p.typ[0] ? p.typ : "",
+               (double)p.distKm, compass8(p.bearingDeg));
+    else
+      snprintf(dst, dstN, "CIVIL %s %.1fkm %s", p.typ[0] ? p.typ : "HELI",
+               (double)p.distKm, compass8(p.bearingDeg));
   } else if (p.ground && mucD < 6.0f) {
     snprintf(dst, dstN, "ON GND AT MUC");
   } else if (trafficLooksMucInbound(p) && eta >= 0 && eta < 90) {
@@ -2453,8 +2605,10 @@ void drawActivityCounter() {
   snprintf(n, sizeof(n), "%d", activityRadiusCount);
   tft.drawFastHLine(78, 195, 84, C_GRIDDIM);
   centerText(n, 202, 2, c);
+  // rev1.1.23: "around you" — the count is centred on HOME_LAT/LON (your
+  // location), not on the airport; the label now says so.
   char label[22];
-  snprintf(label, sizeof(label), "%.0fkm activity", (double)ACTIVITY_RADIUS_KM);
+  snprintf(label, sizeof(label), "%.0fkm around you", (double)ACTIVITY_RADIUS_KM);
   centerText(label, 224, 1, C_DIM);
 }
 
@@ -2731,10 +2885,12 @@ void mucToScreen(float e, float n, int *x, int *y) {
 }
 
 void mucTrafficToScreen(float e, float n, int *x, int *y) {
-  // Aircraft projection for the airport page. The runway drawing above is a
-  // schematic; traffic uses a true MUC-centred 60 km scope so every aircraft
-  // around the airport can appear without turning the runways into dust.
-  float scale = (float)MUC_MAP_R / MUC_MAP_RANGE_KM;
+  // Aircraft projection for the airport page. rev1.1.18: the on-screen scope
+  // is a fixed MUC_MAP_VIEW_KM (default 20 km) — tight enough that the final
+  // approach and initial climb are actually visible at useful size. Traffic
+  // between the view radius and MUC_MAP_EDGE_KM clamps to blue edge markers;
+  // beyond that it is not drawn at all (detection logic still sees 60 km).
+  float scale = (float)MUC_MAP_R / MUC_MAP_VIEW_KM;
   *x = 120 + (int)((e - mucE) * scale);
   *y = MUC_MAP_CY - (int)((n - mucN) * scale);
 }
@@ -2747,8 +2903,10 @@ void drawRunway(float ce, float cn) {   // centre offset from MUC ref (km)
 
   float dx = x1 - x0, dy = y1 - y0;
   float len = sqrtf(dx * dx + dy * dy);
-  float px = len > 0 ? -dy / len * 5.0f : 0;
-  float py = len > 0 ?  dx / len * 5.0f : 5.0f;
+  // rev1.1.19: slab half-width trimmed 5.0 → 3.5 px — at the 22 px/km scale
+  // the 5 px slabs looked more like aprons than runways on the real panel.
+  float px = len > 0 ? -dy / len * 3.5f : 0;
+  float py = len > 0 ?  dx / len * 3.5f : 3.5f;
   // Fill the runway as a precise dark rectangular slab with contrasting edges.
   // Solid rectangular slab with light edges and NO centreline (user note:
   // "fill the black lines and make it more rectangular" — the dim centreline
@@ -2873,7 +3031,12 @@ int nextDepartureIdx() {
 
 void airportStatic() {
   tft.fillScreen(C_BG);
-  drawBezelChrome(false);
+  // rev1.1.20: plain bezel circle only on this page — the twelve small tick
+  // lines ("NSEW grid lines") added nothing over an airport schematic and
+  // crowded the new header stack. The home radar keeps its full ticked bezel.
+  // rev1.1.22: full-brightness amber was overpowering on the panel; the ring
+  // is now a super-faint dark amber, just enough to close the composition.
+  tft.drawCircle(120, 120, 116, tft.color565(72, 52, 8));
   pageDots();
 }
 
@@ -2900,6 +3063,7 @@ bool mucMapPointForAircraft(int idx, int *x, int *y) {
   float dMucE = liveE - mucE, dMucN = liveN - mucN;
   float dMuc  = sqrtf(dMucE * dMucE + dMucN * dMucN);
 
+  if (dMuc > MUC_MAP_EDGE_KM) return false;   // outside the drawn scope
   mucTrafficToScreen(liveE, liveN, x, y);
   int dx = *x - 120, dy = *y - MUC_MAP_CY;
   if (dx * dx + dy * dy > MUC_MAP_R * MUC_MAP_R) {
@@ -2910,7 +3074,14 @@ bool mucMapPointForAircraft(int idx, int *x, int *y) {
   return true;
 }
 
-void drawMucMapNextLabel(int idx, bool arrival) {
+// rev1.1.19: mucMapDashedTrack() (dashed course extrapolation for next
+// ARR/DEP) was removed. On the device it implied a runway assignment we
+// cannot actually predict from a straight-line track — arrivals fly curved
+// approach patterns, so the dashes often pointed somewhere the aircraft was
+// never going. The short 8 px heading stub on every airborne symbol stays.
+
+void drawMucMapNextLabel(int idx, bool arrival, int avoidX, int avoidY,
+                         int *outX, int *outY) {
   // The map no longer has separate ARR/DEP rows. Instead, the next arrival
   // and departure get two-line labels attached directly to their aircraft
   // markers, mirroring the main radar's "label belongs to this arrow" grammar.
@@ -2918,13 +3089,6 @@ void drawMucMapNextLabel(int idx, bool arrival) {
   if (!mucMapPointForAircraft(idx, &x, &y)) return;
   Aircraft &p = planes[idx];
   uint16_t color = arrival ? C_GREEN : C_RED;
-
-  int lx = x - 24;
-  if (lx < 36) lx = 36;
-  if (lx > 156) lx = 156;
-  int ly = y - 28;
-  if (ly < 44) ly = y + 12;
-  if (ly > 184) ly = 184;
 
   float dM = distanceToMucKm(p);
   char status[18];
@@ -2938,18 +3102,67 @@ void drawMucMapNextLabel(int idx, bool arrival) {
     snprintf(status, sizeof(status), "DEP %.0fkm", (double)dM);
   }
 
-  tft.drawLine(x, y, lx + 24, ly + 18, C_DIM);
-  printFit(lx, ly,      p.flight, 1, C_WHITE, 48);
-  printFit(lx, ly + 10, status,   1, color,   48);
+  // Where the arrival is coming FROM / where the departure is headed TO,
+  // from the cached adsbdb route. Empty when the route is unknown.
+  char via[10] = "";
+  char code[6];
+  if (arrival) {
+    if (routeOriginCode(p, code, sizeof(code)) && strcmp(code, "MUC") != 0)
+      snprintf(via, sizeof(via), "fr %s", code);
+  } else {
+    if (routeDestinationCode(p, code, sizeof(code)) && strcmp(code, "MUC") != 0)
+      snprintf(via, sizeof(via), "to %s", code);
+  }
+
+  // rev1.1.23: ONE-line label — callsign, status and fr/to sit side by side
+  // instead of stacked, per user feedback ("saves space"). Widths are
+  // measured so the whole line can be centred on the aircraft and clamped
+  // to the panel.
+  int w1 = (int)strlen(p.flight) * 6;
+  int w2 = (int)strlen(status) * 6;
+  int w3 = via[0] ? (int)strlen(via) * 6 : 0;
+  int total = w1 + 6 + w2 + (w3 ? 6 + w3 : 0);
+
+  int lx = x - total / 2;
+  if (lx < 8) lx = 8;
+  if (lx + total > 232) lx = 232 - total;
+  int ly = y - 16;
+  if (ly < 62) ly = y + 10;
+  if (ly > 204) ly = 204;
+
+  // The two labels (next ARR + next DEP) must never overlap each other:
+  // vertical dodge when the single-line boxes would intersect.
+  if (avoidX > -900 &&
+      lx < avoidX + 140 && lx + total > avoidX &&
+      ly < avoidY + 12 && ly + 12 > avoidY) {
+    if (avoidY + 14 <= 204) ly = avoidY + 14;
+    else                    ly = avoidY - 14;
+  }
+
+  int anchorY = (ly < y) ? ly + 9 : ly - 1;
+  tft.drawLine(x, y, lx + total / 2, anchorY, C_DIM);
+  tft.setTextSize(1);
+  tft.setTextColor(C_WHITE);
+  tft.setCursor(lx, ly);
+  tft.print(p.flight);
+  tft.setTextColor(color);
+  tft.setCursor(lx + w1 + 6, ly);
+  tft.print(status);
+  if (w3) {
+    tft.setTextColor(C_DIM);
+    tft.setCursor(lx + w1 + 6 + w2 + 6, ly);
+    tft.print(via);
+  }
+  if (outX) *outX = lx;
+  if (outY) *outY = ly;
 }
 
 void airportDynamic() {
   clearInnerChrome(false);
 
-  // Tiny top strip: colour-only counts plus cached temp/wind.
-  // The map ring starts lower, after those rows, so the cached temp/wind line
-  // can no longer be crossed by the range circle.
-  // METAR — the two facts a spotter wants before reading the map.
+  // Count traffic first; the header stack (MUC / AIRPORT / temp+wind /
+  // counters) is painted at the END of this function so it always sits on
+  // top of the map graphics.
   int arrCnt = 0, depCnt = 0, gndCnt = 0;
   for (int i = 0; i < planeCount; i++) {
     float dM = distanceToMucKm(planes[i]);
@@ -2960,18 +3173,10 @@ void airportDynamic() {
   int nextArr = nextArrivalIdx();
   int nextDep = nextDepartureIdx();
 
-  drawAirportCounterNumber(76, 18, arrCnt, C_GREEN);
-  drawAirportCounterNumber(120, 18, depCnt, C_RED);
-  drawAirportCounterNumber(164, 18, gndCnt, C_PURPLE);
-  if (mucWx.ok) {
-    char wxLine[24];
-    snprintf(wxLine, sizeof(wxLine), "%s  %s", mucWx.temp, mucWx.wind);
-    centerText(wxLine, 32, 1, C_DIM);
-  }
-
-  // No outer range circle here: on the physical display it read like a pale
-  // halo around the airport and competed with traffic. Aircraft beyond the
-  // 60 km airport scope still clamp to the invisible rim in faint blue.
+  // rev1.1.19: no inner view ring. On the device it read as a second cage
+  // inside the bezel and meant nothing (the bezel already IS the edge of the
+  // view). The scope distance is announced by a single south km label
+  // instead, matching the home radar's south-label convention.
 
   // Runways 08L/26R (north) and 08R/26L (south), drawn as a scaled schematic.
   // MUC has two long parallel runways; the labels show the real reciprocal
@@ -2991,12 +3196,20 @@ void airportDynamic() {
   mucToScreen(mucE, mucN, &tx, &ty);
   tft.fillRoundRect(tx - 14, ty - 5, 28, 10, 2, C_GRIDDIM);
 
+  // Ground-dot de-clump list (rev1.1.20): at 22 px/km a dozen parked aircraft
+  // on the ~2 km apron all land within a few pixels and rendered as one
+  // purple blob. Dots closer than 4 px to an already drawn one are skipped;
+  // the GND counter still counts every aircraft.
+  int ggx[24], ggy[24], ggn = 0;
+
   for (int i = planeCount - 1; i >= 0; i--) {
     Aircraft &p = planes[i];
     float liveE, liveN;
     liveAircraftOffsetKm(p, &liveE, &liveN);
     float dMucE = liveE - mucE, dMucN = liveN - mucN;
     float dMuc  = sqrtf(dMucE * dMucE + dMucN * dMucN);
+
+    if (dMuc > MUC_MAP_EDGE_KM) continue;   // beyond 40 km: not drawn at all
 
     int x, y;
     mucTrafficToScreen(liveE, liveN, &x, &y);
@@ -3009,23 +3222,50 @@ void airportDynamic() {
       clampedToEdge = true;
     }
 
-    // Visual grammar of the operations map:
-    //   faint blue square = outside the 60 km MUC scope, pinned to the edge
+    // Visual grammar of the operations map (rev1.1.18 scope: 20 km on-map,
+    // 20-40 km at the edge, >40 km hidden):
+    //   blue dot + tick = 20-40 km out, pinned to the edge (home-radar style)
     //   purple circle = stationary/ground aircraft on the field
     //   green symbol  = arriving traffic
     //   red symbol    = departing traffic
     //   star/rotor    = notable aircraft / helicopter, regardless of flow
     //   amber symbol   = other aircraft around MUC
-    // All stored aircraft are drawn; only next ARR/DEP get text labels.
+    // Only next ARR/DEP get text labels (no track extrapolation — rev1.1.19).
     bool onRwy = onMucRunway(liveE, liveN) && (p.ground || p.altFt < 900);
     if (clampedToEdge) {
-      tft.fillRect(x - 2, y - 2, 5, 5, C_BLUE_DIM);
+      // Edge contact (20-40 km out): same dot-with-outward-tick marker as the
+      // home radar rim, and pushed to the SAME screen rim radius as page 1
+      // (r=99..105 around the screen centre) instead of hugging the smaller
+      // map circle. One guard: markers whose spot falls on the counter /
+      // weather strip at the top are skipped — instrument numbers always win.
+      float ux = dMucE / dMuc, uy = dMucN / dMuc;
+      int cx2 = 120 + (int)(ux * 99);
+      int cy2 = 120 - (int)(uy * 99);
+      bool onCounters   = (cy2 < 66  && cx2 > 56 && cx2 < 184);
+      bool onSouthLabel = (cy2 > 200 && cx2 > 88 && cx2 < 152);
+      if (!onCounters && !onSouthLabel) {
+        int tx2 = 120 + (int)(ux * 105);
+        int ty2 = 120 - (int)(uy * 105);
+        tft.drawLine(cx2, cy2, tx2, ty2, C_EDGE_BLUE);
+        tft.fillCircle(cx2, cy2, 2, C_EDGE_BLUE);
+      }
     } else if (onRwy) {
       // Aircraft actually on the runway: yellow marker, sized by wake class
       // (a departing A380 visibly dwarfs a CRJ) — per the user's sketch note.
       trafficSymbol(p, x, y, isHeavyType(p) ? 11 : 8, C_AMBER, true);
     } else if (p.ground) {
-      tft.fillCircle(x, y, 3, C_PURPLE);
+      // Smaller dot with a 1 px background ring so touching dots still read
+      // as separate aircraft, plus the de-clump skip above.
+      bool crowded = false;
+      for (int g = 0; g < ggn; g++) {
+        int gdx = x - ggx[g], gdy = y - ggy[g];
+        if (gdx * gdx + gdy * gdy < 16) { crowded = true; break; }
+      }
+      if (!crowded) {
+        if (ggn < 24) { ggx[ggn] = x; ggy[ggn] = y; ggn++; }
+        tft.drawCircle(x, y, 3, C_BG);
+        tft.fillCircle(x, y, 2, C_PURPLE);
+      }
     } else {
       uint16_t c = trafficColor(p, false);
       if (i == nextArr || likelyArrival(p)) c = C_GREEN;
@@ -3043,8 +3283,52 @@ void airportDynamic() {
   // Draw the two operation labels last so they sit cleanly above map traffic:
   // one latest likely arrival, one latest likely departure, no separate text
   // board stealing runway space.
-  drawMucMapNextLabel(nextArr, true);
-  drawMucMapNextLabel(nextDep, false);
+  int firstLx = -999, firstLy = -999;
+  drawMucMapNextLabel(nextArr, true, -999, -999, &firstLx, &firstLy);
+  drawMucMapNextLabel(nextDep, false, firstLx, firstLy, nullptr, nullptr);
+
+  // Header stack + counters are painted LAST, on background pads — instrument
+  // text must always win over map graphics (same priority rule as the home
+  // radar). rev1.1.20 header, top to bottom exactly as sketched by the user:
+  //   MUC          (white)
+  //   AIRPORT      (grey, super small)
+  //   temp + wind  (super small)
+  //   DEP GND ARR  (colour counters)
+  // rev1.1.22: header simplified — big size-3 amber "MUC", no AIRPORT word
+  // (redundant: the runways below say it), then temp+wind, then counters.
+  // rev1.1.23: whole stack lowered a few px — it sat glued to the top edge.
+  tft.fillRect(90, 13, 60, 27, C_BG);
+  centerText("MUC", 14, 3, C_AMBER);
+  if (mucWx.ok) {
+    char wxLine[24];
+    snprintf(wxLine, sizeof(wxLine), "%s %s", mucWx.temp, mucWx.wind);
+    tft.fillRect(72, 41, 96, 10, C_BG);
+    centerText(wxLine, 42, 1, C_DIM);
+  }
+  tft.fillRect(64, 49, 24, 11, C_BG);
+  tft.fillRect(108, 49, 24, 11, C_BG);
+  tft.fillRect(152, 49, 24, 11, C_BG);
+  // Same left/right grammar as the home radar: DEP (red) on the west side,
+  // ARR (green) on the east side, ground count between them.
+  drawAirportCounterNumber(76, 52, depCnt, C_RED);
+  drawAirportCounterNumber(120, 52, gndCnt, C_PURPLE);
+  drawAirportCounterNumber(164, 52, arrCnt, C_GREEN);
+
+  // South scope indicator (rev1.1.19), copied from the home radar's grammar:
+  // dim-green km figure + small south pointer at the bottom of the panel, so
+  // the page announces its own visible range (how far the traffic mapping
+  // reaches before contacts become blue edge markers).
+  char scopeLbl[8];
+  snprintf(scopeLbl, sizeof(scopeLbl), "%dkm", (int)MUC_MAP_VIEW_KM);
+  int slw = (int)strlen(scopeLbl) * 6;
+  int slx = 120 - slw / 2;
+  tft.fillRect(slx - 2, 205, slw + 4, 22, C_BG);
+  tft.setTextSize(1);
+  tft.setTextColor(C_SCOPE_TEXT);
+  tft.setCursor(slx, 208);
+  tft.print(scopeLbl);
+  tft.drawTriangle(120, 225, 114, 217, 126, 217, C_SCOPE_ARROW);
+  tft.drawLine(120, 225, 120, 218, C_SCOPE_ARROW);
 }
 
 // The MUC OPS board page was removed in rev1.0: next-ARR/next-DEP now lives
@@ -3354,6 +3638,11 @@ void prefetchRoutes() {
     if (pageButtonDownNow()) return;
     int d = nextDepartureIdx();
     if (d >= 0) fetchRoute(planes[d].flight, ROUTE_SLOT_MUC_BASE + 1);
+    // rev1.1.21: the map header shows temp+wind, so this page keeps the
+    // METAR cache warm too (no-op while the cache is fresh). Previously it
+    // only filled after visiting the weather page.
+    if (pageButtonDownNow()) return;
+    fetchMucWeather();
   }
   if (page == PAGE_COOLEST || page == PAGE_SUMMARY) {
     if (pageButtonDownNow()) return;
@@ -3426,7 +3715,7 @@ void handlePageButton(uint32_t now) {
 void setup() {
   Serial.begin(115200);
   delay(300);
-  Serial.println("Plane Radar rev1.1.16 booting...");
+  Serial.println("Plane Radar rev1.1.22 booting...");
   pinMode(PAGE_BUTTON_PIN, INPUT_PULLUP);
   if (PAGE_BUTTON_ENABLED)
     attachInterrupt(digitalPinToInterrupt(PAGE_BUTTON_PIN), pageButtonIsr, CHANGE);
@@ -3437,6 +3726,9 @@ void setup() {
   tft.setRotation(0);
   bootAnimation();
   connectWifi();
+  // rev1.1.22: warm the METAR cache once at boot so the MUC map header shows
+  // temp+wind from the first visit instead of "coming later".
+  fetchMucWeather();
   lastPageSwitch = millis();
   setAdsbFetchStatus("waiting");
   resetRadarZoomCycle();
@@ -3465,7 +3757,11 @@ void loop() {
       haveAircraftData = true;
       failCount = 0;
       handlePageButton(millis());
-      if (!manualPageHold && !pageButtonDownNow()) prefetchRoutes();
+      // rev1.1.22: prefetch also runs on manually held pages. The old
+      // !manualPageHold guard meant a page you short-pressed to stay on
+      // NEVER fetched its routes or METAR — exactly where you're looking at
+      // it the longest. prefetchRoutes() still yields to live button presses.
+      if (!pageButtonDownNow()) prefetchRoutes();
 
       // Dynamic special-traffic interrupt: an emergency squawk or very rare
       // airframe (score >= ALERT_SCORE) yanks the carousel to COOLEST TRACK so the
