@@ -276,4 +276,4 @@ Home radar, Munich airport, traffic brief, nearest aircraft, coolest aircraft, w
 
 If nothing special is happening, it is just a calm little live radar. If something fun appears, it can surface that aircraft by itself. That is what makes it addictive: the device is not only showing data, it is choosing what might be worth looking at.
 
-*Built around Freising and Munich Airport. A tiny desk radar for making the sky feel closer.* ✈️
+*Built around Freising and Munich Airport.* ✈️
