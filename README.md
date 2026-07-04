@@ -46,7 +46,7 @@ The radar has six main pages. They rotate automatically, so the device feels ali
 
 | Page | What you see |
 |---|---|
-| **Home Radar** | A north-up radar scope centred around my Freising area. Aircraft slide across range rings, with a small centre dot for my location and a north marker at the top. |
+| **Home Radar** | A north-up radar scope centred around my Freising area. It cycles through different km ranges, so I can see both close overhead traffic and the wider sky around me. |
 | **MUC Map** | A Munich Airport view with the real runway direction in mind. It shows arrivals, departures, ground traffic, wind, temperature, and the next interesting MUC movements. |
 | **Traffic Brief** | A compact "what matters right now" page: nearest aircraft, coolest aircraft, nearest helicopter, emergency traffic, and how busy the local sky is. |
 | **Nearest Aircraft** | A full tracking card for the closest airborne aircraft: callsign, aircraft type, airline/route when known, speed, altitude, distance, climb/descent, and closest approach. |
@@ -66,6 +66,7 @@ It shows aircraft around my Freising area on a circular radar scope. The radar i
 What it shows:
 
 - range rings for the local airspace
+- automatic range cycling through close, medium, and wider km views
 - live aircraft positions
 - smooth movement between data updates, so aircraft glide instead of jumping
 - a centre marker for my location
@@ -74,6 +75,8 @@ What it shows:
 - Munich-style arrival and departure counters when aircraft look like they are heading toward or away from MUC
 
 This is the page I would glance at if I hear a plane and want to know where it is.
+
+The range cycling is important: the main radar does not stay at one fixed zoom. It keeps moving through tighter and wider km ranges, so close aircraft get detail without losing the bigger picture around Freising and Munich.
 
 ### 2. MUC Map 🔴🟢
 
