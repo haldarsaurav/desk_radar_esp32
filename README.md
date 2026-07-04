@@ -1,113 +1,89 @@
-# ✈ MUC Desk Radar — v1.2
+# ✈️ MUC Desk Radar
 
-A Munich-aviation desk instrument: an **ESP32-C3 Super Mini** drives a 1.28″
-round **GC9A01** display and shows **live ADS-B traffic** around your home,
-Munich Airport (MUC/EDDM) operations, decoded aviation weather, and the
-coolest aircraft in the sky right now — a tiny air-traffic-control scope for
-your desk that runs 24/7 on nothing but Wi-Fi.
+**A standalone desk instrument that watches the real sky around you and around Munich Airport — on a 1.28″ round display.**
 
-Live data comes from free, key-less APIs: [adsb.lol](https://api.adsb.lol)
-(positions), [adsbdb](https://www.adsbdb.com) (routes + airlines) and
-[aviationweather.gov](https://aviationweather.gov) (EDDM METAR).
+No phone app. No companion server. An ESP32‑C3 joins your Wi‑Fi, pulls live aircraft and weather data straight from free public feeds, and paints it onto a glass‑cockpit round screen: live traffic, airport operations, per‑aircraft tracking cards, rare‑aircraft alerts, and decoded METAR weather.
 
-> 📖 **New here?** Read the illustrated
-> [Plane Spotter's Manual](docs/spotters_manual.html) — every page, colour,
-> symbol and aviation term explained, with annotated screen mockups.
+> **Note on the code:** this repository is a **showcase**. The firmware source is not published here. This README is meant to give you a clear picture of *what the device does*, *how it's built*, and *what to expect* — without the source itself.
+
+---
+
+## What it looks like
+
+A black puck with a round radar face. Traffic drifts across a north‑up scope; the airport page shows Munich's real runways; tracking cards count down the closest approach of the plane overhead. It runs 24/7 on USB‑C and needs no interaction — though one button lets you browse.
+
+---
+
+## Features at a glance
+
+- **Six live pages**, auto‑rotating on a tuned carousel, or browse manually with one button.
+- **Live ADS‑B traffic** around your home location and Munich Airport, refreshed every few seconds.
+- **Dead‑reckoned motion** between updates so aircraft glide instead of jumping.
+- **Airport operations map** with Munich's real parallel‑runway geometry and on‑field ground traffic.
+- **Per‑aircraft tracking cards** — callsign, type, airline, route with full city names, live altitude/speed/distance, climb trend, and closest‑point‑of‑approach ("passes 2.1 km from you in 1m36s").
+- **Coolness engine** — automatically spots rare airframes (A380, An‑124, C‑17…), military and government callsigns, and interesting situations, and can interrupt the carousel for a genuine rarity.
+- **Emergency awareness** — transponder squawks 7700/7600/7500 are flagged and jump to the front.
+- **Decoded METAR weather** for Munich (wind, visibility, cloud, temp, QNH, flight category).
+- **Gift‑ready setup** — one small config file; a new owner only sets Wi‑Fi and their location.
+- **Robust for 24/7 desk life** — auto‑reconnect, rate‑limit backoff, and graceful "last good data" fallback.
+
+---
 
 ## The six pages
 
-Short-press the button for the next page (the carousel pauses there);
-long-press (1.2 s) to resume auto-rotation.
-
 | # | Page | What it shows |
 |---|------|---------------|
-| 1 | **HOME RADAR** | North-up scope centred on you, touring 20/40/60 km zoom by traffic density. Compass counters: total under the red north arrow, DEP (red) west, ARR (green) east. Up to three aircraft get boxed labels — callsign, type, altitude, speed — tethered to their symbols. Out-of-range traffic becomes dark-blue rim ticks. |
-| 2 | **MUC MAP** | Airport operations: true-geometry 08L/26R + 08R/26L runway schematic, airborne traffic on a 20 km scope, ground traffic spread along the real field. The next arrival and departure are **latched** — watch one plane fly its entire approach — with labels showing callsign, origin/destination, ETA/distance, altitude + speed. Header: temp, wind, DEP/GND/ARR counts. |
-| 3 | **TRFC** | The 10-second briefing: nearest aircraft, coolest aircraft (with why), nearest helicopter **with operator role** (POLICE / RESCUE / SAR / CIVIL, decoded from the callsign), any emergency squawk, and a 100 km activity count around you. |
-| 4 | **NEAREST** | Data card for the closest aircraft: airline in brand colour, route with full city names, big ALT/SPD/DST, climb trend (m/min), and **CPA** — how close it will pass to you and when, ticking live every second. A red rim blip points where to look outside. |
-| 5 | **COOLEST** | Same card for the highest-scored aircraft (A380s, Antonovs, military, government callsigns…) with a why-line. Score ≥ 95 or any emergency interrupts the carousel automatically. |
-| 6 | **WEATHER** | EDDM METAR decoded: wind, visibility, cloud, temp, QNH, significant weather, estimated active runway, VFR/MVFR/IFR/LIFR status pill, and the raw METAR for purists. |
+| 1 | **Home Radar** | North‑up scope centred on you. Range rings tour 20/40/60 km. Colour‑coded traffic with arrival/departure/total counters. |
+| 2 | **MUC Map** | Munich Airport ops view — real runway schematic, on‑field ground traffic, live temp/wind, DEP/GND/ARR counts, next arrival & departure. |
+| 3 | **Traffic Brief** | The four aircraft worth knowing right now: nearest, coolest, nearest helicopter, any emergency — plus a wide‑area "how busy is the sky" count. |
+| 4 | **Nearest** | Full tracking card for the closest airborne aircraft, updating every second, with a rim blip pointing where to look. |
+| 5 | **Coolest** | Same card locked onto the highest‑scored aircraft, with a one‑line reason it's special. |
+| 6 | **MUC WX** | Decoded Munich METAR: wind, visibility, cloud, temperature, QNH, active‑runway estimate, and a VFR→LIFR flight‑category pill. |
 
-## Colour & symbol grammar
+*(A companion **Spotter's Field Manual** documents every symbol, colour and term.)*
 
-| Symbol | Meaning |
-|---|---|
-| 🟢 green triangle | arriving at Munich (points along heading) |
-| 🔴 red triangle | departing Munich |
-| 🟡 amber triangle | other traffic |
-| 🟡 yellow on runway slab | aircraft on the runway (bigger = heavy) |
-| 🟣 purple dot | on the ground / taxiing |
-| 🔵 dark-blue rim dot + tick | beyond drawn range, direction only |
-| ✳ star | special / rare aircraft |
-| ✚ rotor cross | helicopter |
-| ❗ red alert | emergency squawk 7700 / 7600 / 7500 → jumps to TRFC |
-| 🔺 red rim blip (cards) | bearing from **you** to the tracked aircraft |
+---
 
-## Hardware
+## Hardware — just two parts
 
-| Part | Notes |
-|---|---|
-| ESP32-C3 Super Mini | any ESP32-C3 board works with pin tweaks |
-| GC9A01 1.28″ round TFT | 240×240, SPI |
-| Momentary button (optional) | or use the onboard BOOT button (GPIO9, default) |
+| Part | Role |
+|------|------|
+| **ESP32‑C3 Super Mini** (HW‑466AB, USB‑C) | The brain — Wi‑Fi microcontroller, powered & flashed over USB‑C. |
+| **GC9A01 1.28″ round LCD** (240×240, SPI) | The face — every page is drawn here. |
 
-**Wiring** (full diagrams in [docs/display_wiring_guide.html](docs/display_wiring_guide.html)):
+Seven signal wires between them, powered over USB‑C. The onboard BOOT button doubles as the page control, so no extra parts are strictly required. Full wiring, flashing and troubleshooting live in the **Build & Flash Guide**.
 
-| GC9A01 | ESP32-C3 |
-|---|---|
-| VCC | **3V3 — never 5 V!** |
-| GND | GND |
-| SCL/SCK | GPIO4 |
-| SDA/MOSI | GPIO3 |
-| DC | GPIO10 |
-| CS | GPIO1 |
-| RST | GPIO0 |
-| button | GPIO2 → GND, or BOOT (GPIO9) |
+**Data feeds (all free, no API key):** live ADS‑B positions, on‑demand route/airline lookups, and Munich METAR weather.
 
-## Quick start
+---
 
-1. `cp firmware/plane_radar_v1/config.example.h firmware/plane_radar_v1/config.h`
-2. Edit `config.h`: Wi-Fi name + password, **your latitude/longitude**, and
-   your name for the boot splash (`OWNER_NAME`). `config.h` is gitignored —
-   credentials and your home location never reach GitHub.
-3. Arduino IDE: board **ESP32C3 Dev Module**, *USB CDC On Boot: Enabled*.
-   Install libraries **Adafruit GC9A01A** and **ArduinoJson**.
-4. Upload. The device boots with a radar ping + fly-through animation and
-   starts scanning the sky.
+## Under the hood
 
-Everything else — ranges, zoom behaviour, fetch cadence, button pin, airport —
-has sensible defaults and is overridable from `config.h`
-(see the CONFIG DEFAULTS block at the top of the firmware).
+The firmware is a single, heavily‑commented Arduino sketch — roughly **3,400 lines**, **136 functions**, and **7 data structures** — with no dynamic memory churn (fixed‑size caches keep it stable on the microcontroller). A quick map of what's inside:
 
-## Built to run forever
+| Area | Responsibility | Approx. functions |
+|------|----------------|:---:|
+| **Math & geo** | Haversine distance, bearings, ETA, closest‑point‑of‑approach, dead‑reckoning | ~11 |
+| **Text & layout** | Chord‑aware fitting for a round screen, UTF‑8 → ASCII transliteration | ~8 |
+| **Networking / fetch** | ADS‑B positions, route/airline lookups, METAR — with timeouts, retries & rate‑limit backoff | ~6 |
+| **METAR decoder** | Tokenises and decodes raw airport weather into readable fields | ~8 |
+| **Coolness scoring** | Type & callsign rules, situational bonuses, emergency detection | ~7 |
+| **Drawing primitives** | Aircraft triangles, star/rotor/emergency symbols, bezel, low‑flicker blip erasing | ~15 |
+| **Radar page** | Zoom cycling, range rings, label selection, counters, motion stepping | ~25 |
+| **Airport (MUC) page** | Runway schematic, ground/air mapping, arrival/departure selection | ~20 |
+| **Tracking cards** | Nearest & Coolest cards with 1‑second live ticks | ~12 |
+| **Traffic brief** | Nearest/cool/heli/emergency selection & activity counter | ~10 |
+| **Page system** | Carousel timing, interrupt‑latched button handling, alert interrupts | ~8 |
+| **Boot / setup / loop** | Splash animation, Wi‑Fi, main cadence | ~6 |
 
-The firmware is designed for unattended 24/7 desk duty: an interrupt-latched
-button that never misses a press even during network calls, wrap-safe timers,
-flicker-free partial rendering with motion-hash frame skipping, fast retry +
-Wi-Fi re-association after network failures, a low-heap restart guard, and
-one preventive self-restart per day at a quiet moment (~10 s, lands back on
-the radar page).
+Every tunable — ranges, zoom behaviour, refresh intervals, button pin — is a named define with a safe default, overridable from a single config file.
 
-## Adapting it to your airport
+---
 
-MUC is baked in as the default, but the airport reference point, runway
-geometry (heading/length/separation), IATA/ICAO codes and all ranges are
-config values — a different home airport is a handful of lines in `config.h`.
+## What to expect
 
-## Docs
+Plug it in, and after a short radar‑ping boot animation it connects to Wi‑Fi and shows live traffic within seconds. From then on it just runs: the carousel cycles the pages, tracking cards tick, and the sky above your desk becomes something you can actually read. Glance over when the rim blip lights — that's a plane, and it's telling you where to look up.
 
-* [Plane Spotter's Manual](docs/spotters_manual.html) — the illustrated guide
-* [Device manual](docs/device_manual.html) — wiring, setup, controls
-* [Wiring guide](docs/display_wiring_guide.html) — pin-to-pin with schematic
-* [Aviation reference](docs/aviation_reference.html) — squawks, METAR codes, type codes
-* [Design changelog](docs/plane_radar_ui_change_log.md) — how the UI evolved
+---
 
-## Data & credits
-
-Positions: [adsb.lol](https://api.adsb.lol) · routes/airlines:
-[adsbdb](https://www.adsbdb.com) · weather: [aviationweather.gov](https://aviationweather.gov)
-· field facts: [OurAirports](https://ourairports.com). All community/free —
-be kind to their rate limits. Built by Saurav, iterated with Claude.
-
-*For enjoyment only — never use this display for navigation or operational
-decisions.*
+*MUC Desk Radar · Munich / EDDM · built for the desk of a plane‑spotter.*

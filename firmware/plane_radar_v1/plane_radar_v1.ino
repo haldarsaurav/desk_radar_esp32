@@ -2,7 +2,7 @@
   ============================================================================
   plane_radar_v1.ino - rev1.0
   MUC Desk Radar — a Munich aviation desk instrument
-  by Saurav, built iteratively with Claude
+  by Saurav
   ============================================================================
 
   WHAT THIS IS

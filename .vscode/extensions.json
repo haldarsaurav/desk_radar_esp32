@@ -1,0 +1,8 @@
+{
+  "recommendations": [
+    "ms-vscode.cpptools",
+    "ms-vscode.vscode-serial-monitor",
+    "yzhang.markdown-all-in-one",
+    "github.vscode-pull-request-github"
+  ]
+}

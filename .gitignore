@@ -1,8 +1,0 @@
-.pio/
-.vscode/
-build/
-*.bin
-*.elf
-*.map
-.DS_Store
-config.h

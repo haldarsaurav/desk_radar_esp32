@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ESP32‑C3 Super Mini (HW‑466AB) — Datasheet</title>
+<style>
+  :root{
+    --bg:#02040e; --panel:#0a1428; --panel2:#0c1a33; --ink:#e7f0ff; --dim:#7f8b9c;
+    --acc:#3cf078; --acc2:#78e6ff; --amber:#ffb000; --red:#ff4030; --line:#12233f;
+    --mono:"SFMono-Regular",ui-monospace,"Cascadia Code","Consolas",monospace;
+    --sans:"Segoe UI",system-ui,-apple-system,Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:
+    radial-gradient(1000px 560px at 85% -10%,#082a1a 0%,transparent 55%),
+    radial-gradient(760px 520px at 0% 4%,#0a1730 0%,transparent 50%),var(--bg);
+    color:var(--ink);font-family:var(--sans);line-height:1.6}
+  .wrap{max-width:960px;margin:0 auto;padding:0 26px 80px}
+  code,.mono{font-family:var(--mono)}
+  h1,h2,h3{letter-spacing:.4px;line-height:1.2}
+
+  .head{display:flex;justify-content:space-between;align-items:flex-end;gap:24px;
+    padding:56px 0 22px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+  .head .eyebrow{font-family:var(--mono);color:var(--acc);letter-spacing:3px;text-transform:uppercase;font-size:.8rem}
+  .head h1{font-size:2.5rem;margin:.14em 0 .06em}
+  .head .part{font-family:var(--mono);color:var(--dim)}
+  .head .stamp{font-family:var(--mono);font-size:.75rem;color:var(--dim);text-align:right}
+  .head .stamp b{color:var(--acc);display:block;font-size:1.5rem}
+
+  .top{display:grid;grid-template-columns:1.15fr 1fr;gap:28px;margin-top:30px;align-items:center}
+  @media(max-width:720px){.top{grid-template-columns:1fr}}
+  .lede{color:#c4d1e6;font-size:1.04rem}
+  .keyfacts{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:18px}
+  .kf{background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+  .kf .l{font-family:var(--mono);font-size:.68rem;letter-spacing:1px;text-transform:uppercase;color:var(--dim)}
+  .kf .v{font-size:1.02rem;color:#fff;margin-top:2px;font-weight:600}
+  .kf .v small{color:var(--acc2);font-weight:400}
+
+  .board{background:radial-gradient(400px 240px at 50% 20%,#0b2a1c,transparent),#060c1c;
+    border:1px solid #17402a;border-radius:18px;padding:14px}
+
+  section{margin-top:46px}
+  h2.title{font-size:1.4rem;margin:0 0 4px;display:flex;align-items:center;gap:10px}
+  h2.title::before{content:"";width:9px;height:20px;background:var(--acc);border-radius:2px;display:inline-block}
+  table{width:100%;border-collapse:collapse;margin-top:12px;font-size:.92rem}
+  th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line)}
+  th{font-family:var(--mono);font-size:.7rem;letter-spacing:1px;text-transform:uppercase;color:var(--acc2);
+    background:rgba(120,230,255,.04)}
+  td.k{color:var(--dim);width:38%}
+  td.v{color:#fff}
+  td .mono{color:var(--amber)}
+  tr:hover td{background:rgba(60,240,120,.03)}
+
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:24px}
+  @media(max-width:720px){.two{grid-template-columns:1fr}}
+
+  .note{border-left:3px solid var(--amber);background:rgba(255,176,0,.06);padding:11px 15px;
+    border-radius:0 10px 10px 0;margin-top:16px;color:#e9d9b6;font-size:.9rem}
+  .note.red{border-color:var(--red);background:rgba(255,64,48,.07);color:#f2c9c4}
+  .note b{color:var(--amber)} .note.red b{color:var(--red)}
+
+  .usedpins{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+  .up{font-family:var(--mono);font-size:.8rem;background:#0c1a33;border:1px solid #24406a;border-radius:8px;
+    padding:6px 11px}
+  .up b{color:var(--acc)}
+
+  footer{margin-top:56px;padding-top:20px;border-top:1px solid var(--line);color:var(--dim);
+    font-size:.8rem;text-align:center;font-family:var(--mono)}
+  @media print{body{background:#fff;color:#111}.board{background:#f4f6fb;border-color:#ccc}
+    .kf,.note{background:#f4f6fb} h2.title::before{background:#137a3a}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="head">
+    <div>
+      <div class="eyebrow">Microcontroller · Datasheet</div>
+      <h1>ESP32‑C3 Super Mini</h1>
+      <div class="part">board marking <b class="mono" style="color:#fff">HW‑466AB</b> · USB‑C · onboard PCB antenna</div>
+    </div>
+    <div class="stamp">Wi‑Fi + BLE SoC<b>RISC‑V</b>single‑core · 160 MHz</div>
+  </div>
+
+  <div class="top">
+    <div>
+      <p class="lede">A thumb‑sized development board built around Espressif's ESP32‑C3 — a 32‑bit RISC‑V
+      microcontroller with 2.4 GHz Wi‑Fi and Bluetooth 5 Low Energy on a single die. In this project it is
+      the whole computer: it joins your Wi‑Fi, pulls live flight and weather data, and drives the round
+      display over SPI. Powered and flashed through one USB‑C port.</p>
+      <div class="keyfacts">
+        <div class="kf"><div class="l">CPU</div><div class="v">RISC‑V 32‑bit <small>@160 MHz</small></div></div>
+        <div class="kf"><div class="l">Memory</div><div class="v">400 KB SRAM <small>+ 384 KB ROM</small></div></div>
+        <div class="kf"><div class="l">Flash (module)</div><div class="v">4 MB <small>typ.</small></div></div>
+        <div class="kf"><div class="l">Radio</div><div class="v">Wi‑Fi b/g/n <small>+ BLE 5</small></div></div>
+        <div class="kf"><div class="l">Logic level</div><div class="v">3.3 V</div></div>
+        <div class="kf"><div class="l">Power in</div><div class="v">USB‑C 5 V <small>→ 3V3 reg</small></div></div>
+      </div>
+    </div>
+    <div class="board">
+      <svg viewBox="0 0 300 300" xmlns="http://www.w3.org/2000/svg" width="100%" aria-label="ESP32-C3 Super Mini pinout">
+        <style>
+          .pl{font-family:monospace;font-size:9px;fill:#9fb0c6}
+          .pw{font-family:monospace;font-size:9px;fill:#3cf078}
+          .pad{fill:#c9a227}
+        </style>
+        <!-- PCB -->
+        <rect x="70" y="30" width="160" height="240" rx="10" fill="#0d2a1c" stroke="#2f6b45"/>
+        <!-- USB-C top -->
+        <rect x="122" y="18" width="56" height="20" rx="6" fill="#26323f" stroke="#4a5b6d"/>
+        <text x="150" y="32" class="pl" text-anchor="middle" fill="#c4d1e6">USB‑C</text>
+        <!-- shield/antenna -->
+        <rect x="96" y="52" width="108" height="60" rx="4" fill="#12432c" stroke="#2f6b45"/>
+        <text x="150" y="86" class="pw" text-anchor="middle" font-size="12">ESP32‑C3</text>
+        <path d="M150 118 q -22 8 -22 26 q 0 18 22 18 q 22 0 22 -18" fill="none" stroke="#2f6b45"/>
+        <text x="150" y="150" class="pl" text-anchor="middle">antenna</text>
+        <!-- buttons -->
+        <rect x="100" y="170" width="18" height="12" rx="2" fill="#1c3a28" stroke="#2f6b45"/><text x="109" y="196" class="pl" text-anchor="middle">RST</text>
+        <rect x="182" y="170" width="18" height="12" rx="2" fill="#1c3a28" stroke="#2f6b45"/><text x="191" y="196" class="pl" text-anchor="middle">BOOT·IO9</text>
+        <circle cx="150" cy="176" r="4" fill="#2a4a72"/><text x="150" y="196" class="pl" text-anchor="middle">LED·IO8</text>
+        <!-- left pads -->
+        <g>
+          <circle cx="78" cy="70"  r="5" class="pad"/><text x="90" y="73" class="pl">5V</text>
+          <circle cx="78" cy="95"  r="5" class="pad"/><text x="90" y="98" class="pl">GND</text>
+          <circle cx="78" cy="120" r="5" class="pad"/><text x="90" y="123" class="pl">3V3</text>
+          <circle cx="78" cy="145" r="5" class="pad"/><text x="90" y="148" class="pw">IO4 SCL</text>
+          <circle cx="78" cy="170" r="5" class="pad"/><text x="90" y="173" class="pw">IO3 SDA</text>
+          <circle cx="78" cy="195" r="5" class="pad"/><text x="90" y="198" class="pl">IO2</text>
+          <circle cx="78" cy="220" r="5" class="pad"/><text x="90" y="223" class="pl">IO1 (CS)</text>
+          <circle cx="78" cy="245" r="5" class="pad"/><text x="90" y="248" class="pl">IO0 (RST)</text>
+        </g>
+        <!-- right pads -->
+        <g text-anchor="end">
+          <circle cx="222" cy="70"  r="5" class="pad"/><text x="210" y="73" class="pw">IO10 DC</text>
+          <circle cx="222" cy="95"  r="5" class="pad"/><text x="210" y="98" class="pl">IO9 BOOT</text>
+          <circle cx="222" cy="120" r="5" class="pad"/><text x="210" y="123" class="pl">IO8 LED</text>
+          <circle cx="222" cy="145" r="5" class="pad"/><text x="210" y="148" class="pl">IO7</text>
+          <circle cx="222" cy="170" r="5" class="pad"/><text x="210" y="173" class="pl">IO6</text>
+          <circle cx="222" cy="195" r="5" class="pad"/><text x="210" y="198" class="pl">IO5</text>
+          <circle cx="222" cy="220" r="5" class="pad"/><text x="210" y="223" class="pl">IO21 TX</text>
+          <circle cx="222" cy="245" r="5" class="pad"/><text x="210" y="248" class="pl">IO20 RX</text>
+        </g>
+        <text x="150" y="288" class="pl" text-anchor="middle">representative pinout · yellow = header pad</text>
+      </svg>
+    </div>
+  </div>
+
+  <section>
+    <h2 class="title">Electrical &amp; core specification</h2>
+    <div class="two">
+      <table>
+        <tr><th colspan="2">Processor &amp; memory</th></tr>
+        <tr><td class="k">Core</td><td class="v">32‑bit RISC‑V single‑core</td></tr>
+        <tr><td class="k">Clock</td><td class="v">up to 160 MHz</td></tr>
+        <tr><td class="k">SRAM</td><td class="v">400 KB (16 KB cache)</td></tr>
+        <tr><td class="k">RTC SRAM</td><td class="v">8 KB</td></tr>
+        <tr><td class="k">ROM</td><td class="v">384 KB</td></tr>
+        <tr><td class="k">Flash</td><td class="v">4 MB on‑module (typ.)</td></tr>
+      </table>
+      <table>
+        <tr><th colspan="2">Wireless</th></tr>
+        <tr><td class="k">Wi‑Fi</td><td class="v">IEEE 802.11 b/g/n, 2.4 GHz</td></tr>
+        <tr><td class="k">Bluetooth</td><td class="v">Bluetooth 5 (LE), mesh</td></tr>
+        <tr><td class="k">Antenna</td><td class="v">onboard PCB trace</td></tr>
+        <tr><td class="k">Security</td><td class="v">WPA/WPA2/WPA3, secure boot, flash encrypt</td></tr>
+      </table>
+    </div>
+    <div class="two">
+      <table>
+        <tr><th colspan="2">I/O &amp; peripherals</th></tr>
+        <tr><td class="k">GPIO</td><td class="v">up to 22 (≈11 broken out on Super Mini)</td></tr>
+        <tr><td class="k">Serial buses</td><td class="v">3× SPI, 2× UART, 1× I²C, 1× I²S</td></tr>
+        <tr><td class="k">ADC</td><td class="v">2× 12‑bit SAR, up to 6 channels</td></tr>
+        <tr><td class="k">Timers/PWM</td><td class="v">LEDC PWM, RMT, multiple timers</td></tr>
+        <tr><td class="k">USB</td><td class="v">USB Serial/JTAG (native, over USB‑C)</td></tr>
+        <tr><td class="k">Sensor</td><td class="v">on‑chip temperature sensor</td></tr>
+      </table>
+      <table>
+        <tr><th colspan="2">Power &amp; environment</th></tr>
+        <tr><td class="k">Operating voltage</td><td class="v">3.0 – 3.6 V (3.3 V logic)</td></tr>
+        <tr><td class="k">Board input</td><td class="v">5 V via USB‑C → onboard LDO</td></tr>
+        <tr><td class="k">Wi‑Fi TX peak</td><td class="v">~felt as short current spikes; add bulk cap for stability</td></tr>
+        <tr><td class="k">Deep sleep</td><td class="v">microamp‑class (not used here — 24/7 desk power)</td></tr>
+        <tr><td class="k">Temp range</td><td class="v">−40 °C … +85/105 °C (chip grade)</td></tr>
+      </table>
+    </div>
+    <div class="note red"><b>3.3 V part.</b> GPIOs are not 5 V tolerant. Power the display from the board's
+    <span class="mono">3V3</span> pin, and never drive a 5 V signal into any IO pin.</div>
+  </section>
+
+  <section>
+    <h2 class="title">Onboard controls &amp; notes</h2>
+    <table>
+      <tr><th>Feature</th><th>Detail</th></tr>
+      <tr><td class="v"><b>BOOT button</b></td><td>On <span class="mono">GPIO9</span>. Reused as the page button in this project. Held during power‑up it forces the ROM bootloader — handy for flashing, annoying if pressed by accident (just re‑plug).</td></tr>
+      <tr><td class="v"><b>RST button</b></td><td>Hardware reset. BOOT + RST is the manual flashing handshake.</td></tr>
+      <tr><td class="v"><b>User LED</b></td><td>Onboard LED on <span class="mono">GPIO8</span> (also a strapping pin — leave floating at boot).</td></tr>
+      <tr><td class="v"><b>Strapping pins</b></td><td><span class="mono">GPIO2, GPIO8, GPIO9</span> influence boot mode; fine for normal use once running.</td></tr>
+    </table>
+  </section>
+
+  <section>
+    <h2 class="title">As wired in the MUC Desk Radar</h2>
+    <p style="color:#b9c6db;max-width:720px">Only the display SPI bus and the onboard button are used — the
+    rest of the pins are free for future add‑ons.</p>
+    <div class="usedpins">
+      <span class="up"><b>GPIO4</b> → display SCL</span>
+      <span class="up"><b>GPIO3</b> → display SDA</span>
+      <span class="up"><b>GPIO10</b> → display DC</span>
+      <span class="up"><b>GPIO1</b> → display CS</span>
+      <span class="up"><b>GPIO0</b> → display RST</span>
+      <span class="up"><b>3V3 / GND</b> → display power</span>
+      <span class="up"><b>GPIO9</b> → page button (onboard BOOT)</span>
+    </div>
+  </section>
+
+  <footer>ESP32‑C3 SUPER MINI (HW‑466AB) · REFERENCE CARD · figures per Espressif ESP32‑C3 datasheet; board specifics typical for common Super Mini modules</footer>
+</div>
+</body>
+</html>
