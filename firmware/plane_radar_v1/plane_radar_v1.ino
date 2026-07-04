@@ -1,6 +1,6 @@
 /*
   ============================================================================
-  plane_radar_v1.ino - rev1.2.10 (quiet transient-fetch pill)
+  plane_radar_v1.ino - rev1.0
   MUC Desk Radar — a Munich aviation desk instrument
   by Saurav, built iteratively with Claude
   ============================================================================
@@ -125,87 +125,6 @@
   setup()/loop() ........ boot animation -> Wi-Fi -> METAR warm-up -> main
                           cadence: fetch / live steps / auto page carousel
 
-  ============================== CHANGELOG ==================================
-  rev1.2.10 (quiet transient-fetch pill)
-    - The "retry HTTP -1 / HTTP -11" pill no longer flashes on the main screen
-      for a single transient fetch failure. Once live traffic is on screen the
-      status pill stays hidden until failures persist (FETCH_PILL_FAIL_MIN, ~12
-      s of back-to-back retries); before the first packet it still shows
-      progress. Recovery is automatic, so brief network blips are now silent.
-  rev1.2.9 (rate-limit backoff + quieter rim + WX tweak)
-    - HTTP 429 (rate limited) no longer spams a "retry HTTP 429" pill or feeds
-      the failCount reboot spiral: the fetch backs off for 45 s, keeps the last
-      good traffic on screen, and resumes quietly. Applies to both the primary
-      and the buffered-retry GET.
-    - Out-of-range contacts are now a small faint dark-blue DOT (C_EDGE_DOT)
-      instead of a line arrow, on both HOME RADAR and the MUC map — less
-      distraction. The old per-page rim blues were retired.
-    - MUC WX "airport" sub-line brightened from dim green to light grey.
-  rev1.2.8 (ADS-B stream + city text hotfix)
-    - ADS-B fetch now asks for identity/non-chunked JSON and retries once with
-      the older buffered parser if the stream parser fails. This keeps the
-      rev1.2.7 heap improvement but fixes "JSON fail" when a server/proxy sends
-      a body format the raw stream parser cannot consume.
-    - Route city/airline names are transliterated from common UTF-8 European
-      accents into display-safe ASCII before they reach the tiny GFX font.
-      Example: Duesseldorf now renders as "Duesseldorf" instead of broken bytes.
-  rev1.2.7 (final hardening + manual pass)
-    - Final pre-run logic pass: boot Wi-Fi failures now restart/retry instead
-      of sitting forever on WIFI FAILED, and loop() restarts if Wi-Fi remains
-      disconnected through repeated reconnect attempts.
-    - ADS-B JSON now streams directly from HTTPClient into ArduinoJson instead
-      of first allocating a large temporary String, reducing heap pressure for
-      24/7 use.
-    - Out-of-range blue contacts are line-drawn rim arrows (shaft + two wings)
-      instead of blocky filled mini-shapes; same grammar on HOME RADAR and
-      MUC MAP.
-  rev1.2.4 (ship it)
-    - WX page: MUC header lowered with a small grey "airport" sub-line, and
-      the whole data cluster nudged right so it sits centred on the panel.
-    - 24/7 self-maintenance in loop(): low-heap restart guard, Wi-Fi
-      re-association after repeated fetch failures (restart if still dead),
-      and a daily preventive restart at a quiet moment. All millis() timers
-      use wrap-safe unsigned subtraction, so the 49.7-day rollover is a
-      non-event.
-    - Privacy for gifting: the boot-splash name is now OWNER_NAME (config.h);
-      config.example.h ships with Munich Airport as a neutral placeholder
-      location, and the owner's real coordinates were removed from every
-      committed file (they live only in the gitignored config.h).
-  rev1.2.3 (final touches)
-    - Home radar labels: ground speed added as a 4th line; minimum label
-      spacing widened (34 -> 46 px centres) with up/down fallback slots, so
-      boxes spread out instead of stacking — each keeps its tether line.
-    - Airport labels: full box + the same thin faint green frame as the
-      home radar labels.
-    - Airport rim blue now matches the home radar rim blue exactly.
-    - Ground traffic clamped into the runway corridor (runway-axis
-      projection) so ADS-B scatter never paints a parked plane in the grass.
-  rev1.2.2 (final follow-through)
-    - MUC map: next-ARR/DEP are LATCHED — one arrival is followed from far
-      out all the way to touchdown, one departure from the runway until it
-      clears the 20 km view, before the next candidate is picked. No more
-      label hopping between planes.
-    - MUC map labels: three padded lines (callsign+route / ARR-DEP status /
-      altitude+speed) that always read on top of runways and traffic.
-    - Boot always lands on the HOME RADAR page; alert page-jumps are muted
-      for the first 45 s after power-on.
-  rev1.2.1 (final polish)
-    - Home radar: motion-hash frame skip — no more erase/repaint flicker
-      when nothing has moved a pixel.
-    - MUC map: on-field aircraft drawn at runway-schematic scale, so ground
-      traffic spreads along the real runways/apron instead of collapsing
-      into one blob (GND count finally looks like the picture).
-    - TRFC header lowered into its slack space.
-    - Tracking cards fully metric (climb rate in mpm), and the NEAREST card
-      now states "Munich arrival"/"departing Munich" like COOLEST does.
-    - Header documentation rewritten as the final build reference; pre-1.2
-      changelog history removed (it lives in git).
-  rev1.2.0
-    - Darker rim blues (radar + fainter still on MUC map); two-line MUC
-      labels (callsign+route / status); TRFC page header + emergency jump;
-      "-- > --" placeholders instead of empty card rows; red bearing blip
-      on tracking pages; 1 s live CPA/DST tick; boot plane animation and
-      S A U R A V splash. Earlier history: see git log.
   ============================================================================
 */
 
