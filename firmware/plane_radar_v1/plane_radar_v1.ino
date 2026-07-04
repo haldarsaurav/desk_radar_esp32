@@ -1,6 +1,6 @@
 /*
   ============================================================================
-  plane_radar_v1.ino - rev1.2.9 (rate-limit backoff + quieter rim + WX tweak)
+  plane_radar_v1.ino - rev1.2.10 (quiet transient-fetch pill)
   MUC Desk Radar — a Munich aviation desk instrument
   by Saurav, built iteratively with Claude
   ============================================================================
@@ -126,6 +126,12 @@
                           cadence: fetch / live steps / auto page carousel
 
   ============================== CHANGELOG ==================================
+  rev1.2.10 (quiet transient-fetch pill)
+    - The "retry HTTP -1 / HTTP -11" pill no longer flashes on the main screen
+      for a single transient fetch failure. Once live traffic is on screen the
+      status pill stays hidden until failures persist (FETCH_PILL_FAIL_MIN, ~12
+      s of back-to-back retries); before the first packet it still shows
+      progress. Recovery is automatic, so brief network blips are now silent.
   rev1.2.9 (rate-limit backoff + quieter rim + WX tweak)
     - HTTP 429 (rate limited) no longer spams a "retry HTTP 429" pill or feeds
       the failCount reboot spiral: the fetch backs off for 45 s, keeps the last
@@ -2050,13 +2056,21 @@ void radarLabels() {
   radarCounter(205, 115, arr,  C_GREEN);
 }
 
+// rev1.2.10: once live traffic is on screen, a single transient fetch failure
+// (e.g. "HTTP -1" connection-refused, a read timeout) recovers on the very next
+// 3 s retry, so flashing a "retry ..." pill for it just adds desk noise. Stay
+// quiet until failures actually persist; a real outage still surfaces the pill.
+#define FETCH_PILL_FAIL_MIN  4      // ~12 s of back-to-back failures (4 x 3 s)
+
 void radarFetchStatusPill() {
   // Startup/network diagnostic for standalone use. Earlier revisions left the
   // boot splash on screen until the first successful ADS-B response, which
   // looked like a freeze when the API was slow, blocked, or returning an HTTP
   // error. This pill lets the radar shell stay visible while clearly saying
   // that the firmware is still alive and retrying in the background.
-  if (haveAircraftData && failCount == 0) return;
+  // With data already on screen, ignore brief hiccups (see FETCH_PILL_FAIL_MIN)
+  // so a momentary HTTP -1 never paints; before the first packet, show progress.
+  if (haveAircraftData && failCount < FETCH_PILL_FAIL_MIN) return;
 
   char msg[24];
   if (!haveAircraftData && failCount == 0)
