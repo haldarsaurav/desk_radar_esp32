@@ -1,6 +1,6 @@
 /*
   ============================================================================
-  plane_radar_v1.ino — rev1.2.4 (FINAL BUILD)
+  plane_radar_v1.ino - rev1.2.9 (rate-limit backoff + quieter rim + WX tweak)
   MUC Desk Radar — a Munich aviation desk instrument
   by Saurav, built iteratively with Claude
   ============================================================================
@@ -75,8 +75,8 @@
   * AMBER triangle .... other traffic
   * YELLOW on slab .... aircraft physically on a runway (bigger = heavy)
   * PURPLE dot ........ on the ground / taxiing
-  * DARK-BLUE rim dot + outward tick ... aircraft beyond the drawn scope,
-                        direction only (deliberately dark: context, not news)
+  * DARK-BLUE rim dot ... aircraft beyond the drawn scope, direction only
+                        (deliberately faint: context, not news)
   * STAR .............. special/rare aircraft (see typeRules/csRules)
   * Rotor cross ....... helicopter
   * RED "!" pill ...... emergency squawk 7700/7600/7500
@@ -126,6 +126,33 @@
                           cadence: fetch / live steps / auto page carousel
 
   ============================== CHANGELOG ==================================
+  rev1.2.9 (rate-limit backoff + quieter rim + WX tweak)
+    - HTTP 429 (rate limited) no longer spams a "retry HTTP 429" pill or feeds
+      the failCount reboot spiral: the fetch backs off for 45 s, keeps the last
+      good traffic on screen, and resumes quietly. Applies to both the primary
+      and the buffered-retry GET.
+    - Out-of-range contacts are now a small faint dark-blue DOT (C_EDGE_DOT)
+      instead of a line arrow, on both HOME RADAR and the MUC map — less
+      distraction. The old per-page rim blues were retired.
+    - MUC WX "airport" sub-line brightened from dim green to light grey.
+  rev1.2.8 (ADS-B stream + city text hotfix)
+    - ADS-B fetch now asks for identity/non-chunked JSON and retries once with
+      the older buffered parser if the stream parser fails. This keeps the
+      rev1.2.7 heap improvement but fixes "JSON fail" when a server/proxy sends
+      a body format the raw stream parser cannot consume.
+    - Route city/airline names are transliterated from common UTF-8 European
+      accents into display-safe ASCII before they reach the tiny GFX font.
+      Example: Duesseldorf now renders as "Duesseldorf" instead of broken bytes.
+  rev1.2.7 (final hardening + manual pass)
+    - Final pre-run logic pass: boot Wi-Fi failures now restart/retry instead
+      of sitting forever on WIFI FAILED, and loop() restarts if Wi-Fi remains
+      disconnected through repeated reconnect attempts.
+    - ADS-B JSON now streams directly from HTTPClient into ArduinoJson instead
+      of first allocating a large temporary String, reducing heap pressure for
+      24/7 use.
+    - Out-of-range blue contacts are line-drawn rim arrows (shaft + two wings)
+      instead of blocky filled mini-shapes; same grammar on HOME RADAR and
+      MUC MAP.
   rev1.2.4 (ship it)
     - WX page: MUC header lowered with a small grey "airport" sub-line, and
       the whole data cluster nudged right so it sits centred on the panel.
@@ -319,10 +346,11 @@ Adafruit_GC9A01A tft(TFT_CS, TFT_DC, TFT_RST);
 #define C_GREEN        tft.color565(60, 240, 120)
 #define C_BLUE         tft.color565(72, 150, 255)
 #define C_BLUE_DIM     tft.color565(22, 62, 112)    // faint but readable edge contacts
-// rev1.2.0: rim-marker blues toned down on user request — full-brightness
-// blue dots ringed the whole scope and stole attention from real traffic.
-#define C_EDGE_BLUE    tft.color565(24, 84, 168)    // home-radar rim aircraft (darker)
-#define C_EDGE_BLUE_MAP tft.color565(16, 56, 116)   // MUC map rim aircraft (fainter still)
+// rev1.2.9: out-of-range contacts are a small faint dot (was a line arrow;
+// user: "less distraction"). One quiet dark-blue shared by the home radar and
+// the MUC map so a ring of edge traffic no longer pulls the eye. The older
+// per-page rim blues (C_EDGE_BLUE / C_EDGE_BLUE_MAP) retired with the arrows.
+#define C_EDGE_DOT     tft.color565(12, 40, 92)     // faint dark-blue rim dot
 #define C_CENTER_DOT   tft.color565(92, 124, 145)   // dim receiver marker
 #define C_PURPLE       tft.color565(186, 96, 255)   // stationary/ground traffic on the MUC map
 #define C_GREY         tft.color565(130, 140, 150)
@@ -368,6 +396,15 @@ uint32_t lastFetch = 0, lastFetchAttempt = 0, lastPageSwitch = 0;
 int      failCount = 0;
 bool     haveAircraftData = false;
 char     adsbFetchStatus[20] = "waiting";
+// rev1.2.9: rate-limit backoff. When the ADS-B API answers 429 (Too Many
+// Requests), hammering it again after 3 s only deepens the block and leaves a
+// "retry HTTP 429" pill on the desk. Instead we pause fetching until
+// `adsbBackoffUntil`, keep showing the last good traffic, and — because
+// `adsbRateLimited` skips the failCount bump — never spiral into the network
+// re-association / restart guards over what is just polite throttling.
+uint32_t adsbBackoffUntil = 0;
+bool     adsbRateLimited  = false;
+#define  ADSB_RATELIMIT_BACKOFF_MS  45000UL
 // Page order (rev1.1.23: back to six live pages — the TAF, MUC INFO and
 // OPEN SKY reference pages were removed on user request).
 #define PAGE_RADAR    0
@@ -434,6 +471,14 @@ float mucE = 0, mucN = 0;
 struct RouteCache {
   char forCs[10], codes[24], cities[30], airline[24];
 };
+
+// Airline brand entry (colour + tidy short name). The DEFINITION must live up
+// here with the other structs, not next to the airlineBrands[] table lower in
+// the file: the Arduino builder hoists auto-generated prototypes (e.g. for
+// airlineBrandFor(), which returns AirlineBrand*) to the top, and they must
+// find the type already declared. The table + lookups stay lower down.
+struct AirlineBrand { const char *pfx; const char *disp; uint8_t r, g, b; };
+
 #define ROUTE_SLOT_NEAREST 0
 #define ROUTE_SLOT_COOLEST 1
 #define ROUTE_SLOT_MUC_BASE 2
@@ -917,8 +962,15 @@ void connectWifi() {
     splash("wifi connected", WiFi.localIP().toString().c_str(), C_BRIGHT);
     delay(1000);
   } else {
-    splash("WIFI FAILED", "check config.h + reboot", C_RED);
-    while (true) delay(1000);
+    // 24/7 rule: never park forever on a boot-time network failure. If the
+    // router is late, the password changed, or the Wi-Fi stack wedged during
+    // power-up, restart and try again instead of becoming a static error sign
+    // on the desk. A bad config still remains obvious because the message
+    // stays up for a few seconds on every retry cycle.
+    splash("WIFI FAILED", "retrying after reboot", C_RED);
+    Serial.println("\nWiFi initial connect failed; rebooting to retry.");
+    delay(5000);
+    ESP.restart();
   }
 }
 
@@ -939,6 +991,102 @@ void copyStr(char *dst, size_t n, const char *src) {
   for (int i = (int)strlen(dst) - 1; i >= 0 && dst[i] == ' '; i--) dst[i] = 0;
 }
 
+void appendAsciiChunk(char *dst, size_t n, size_t &o, const char *chunk) {
+  // Small helper for copyScreenText(). It appends a replacement such as "ue"
+  // only while there is still room for the trailing NUL. Keeping this separate
+  // makes the UTF-8 table below readable and avoids repeated bounds logic.
+  if (!chunk) return;
+  for (size_t i = 0; chunk[i] && o < n - 1; i++) dst[o++] = chunk[i];
+}
+
+void copyScreenText(char *dst, size_t n, const char *src) {
+  // Human-readable API strings (city names and airline legal names) can contain
+  // UTF-8 accents such as Duesseldorf's German umlaut. The GC9A01 pages use the
+  // tiny built-in GFX font, which is byte-oriented ASCII; drawing raw UTF-8
+  // bytes produces broken-looking characters. This function transliterates the
+  // common European characters we see in airport names into plain ASCII, then
+  // drops anything still unknown. Callsigns still use copyStr() because those
+  // should be strict printable ASCII, not language text.
+  if (!src) src = "";
+  size_t o = 0;
+  for (size_t i = 0; src[i] && o < n - 1; ) {
+    uint8_t c = (uint8_t)src[i];
+    if (c >= 32 && c <= 126) {
+      dst[o++] = (char)c;
+      i++;
+      continue;
+    }
+
+    const char *rep = "";
+    uint8_t d = (uint8_t)src[i + 1];
+
+    if (c == 0xC2 && src[i + 1]) {
+      // Non-breaking spaces show up from some APIs; use a normal space.
+      if (d == 0xA0) rep = " ";
+      i += 2;
+    } else if (c == 0xC3 && src[i + 1]) {
+      // Latin-1 supplement in UTF-8: German, French, Spanish, Nordic names.
+      switch (d) {
+        case 0x80: case 0x81: case 0x82: case 0x83: case 0x85: rep = "A"; break;
+        case 0x84: rep = "Ae"; break;
+        case 0x86: rep = "AE"; break;
+        case 0x87: rep = "C"; break;
+        case 0x88: case 0x89: case 0x8A: case 0x8B: rep = "E"; break;
+        case 0x8C: case 0x8D: case 0x8E: case 0x8F: rep = "I"; break;
+        case 0x91: rep = "N"; break;
+        case 0x92: case 0x93: case 0x94: case 0x95: rep = "O"; break;
+        case 0x96: rep = "Oe"; break;
+        case 0x98: rep = "O"; break;
+        case 0x99: case 0x9A: case 0x9B: rep = "U"; break;
+        case 0x9C: rep = "Ue"; break;
+        case 0x9D: rep = "Y"; break;
+        case 0x9F: rep = "ss"; break;
+        case 0xA0: case 0xA1: case 0xA2: case 0xA3: case 0xA5: rep = "a"; break;
+        case 0xA4: rep = "ae"; break;
+        case 0xA6: rep = "ae"; break;
+        case 0xA7: rep = "c"; break;
+        case 0xA8: case 0xA9: case 0xAA: case 0xAB: rep = "e"; break;
+        case 0xAC: case 0xAD: case 0xAE: case 0xAF: rep = "i"; break;
+        case 0xB1: rep = "n"; break;
+        case 0xB2: case 0xB3: case 0xB4: case 0xB5: rep = "o"; break;
+        case 0xB6: rep = "oe"; break;
+        case 0xB8: rep = "o"; break;
+        case 0xB9: case 0xBA: case 0xBB: rep = "u"; break;
+        case 0xBC: rep = "ue"; break;
+        case 0xBD: case 0xBF: rep = "y"; break;
+      }
+      i += 2;
+    } else if (c == 0xC4 && src[i + 1]) {
+      // Central/Eastern European airport names: Zagreb, Lodz, Gdansk, etc.
+      switch (d) {
+        case 0x84: case 0x85: rep = "a"; break;
+        case 0x86: case 0x87: case 0x8C: case 0x8D: rep = "c"; break;
+        case 0x98: case 0x99: rep = "e"; break;
+        case 0xB9: case 0xBA: rep = "l"; break;
+      }
+      i += 2;
+    } else if (c == 0xC5 && src[i + 1]) {
+      switch (d) {
+        case 0x81: case 0x82: rep = "l"; break;
+        case 0x83: case 0x84: rep = "n"; break;
+        case 0x98: case 0x99: rep = "r"; break;
+        case 0x9A: case 0x9B: rep = "s"; break;
+        case 0xB9: case 0xBA: case 0xBD: case 0xBE: rep = "z"; break;
+      }
+      i += 2;
+    } else if ((c & 0xE0) == 0xC0 && src[i + 1]) {
+      i += 2;      // unknown 2-byte UTF-8 sequence
+    } else if ((c & 0xF0) == 0xE0 && src[i + 1] && src[i + 2]) {
+      i += 3;      // unknown 3-byte UTF-8 sequence
+    } else {
+      i++;         // malformed byte; skip it
+    }
+    appendAsciiChunk(dst, n, o, rep);
+  }
+  dst[o] = 0;
+  for (int j = (int)strlen(dst) - 1; j >= 0 && dst[j] == ' '; j--) dst[j] = 0;
+}
+
 void setAdsbFetchStatus(const char *status) {
   // This is intentionally short and sanitized because it is both printed to
   // Serial and drawn inside a tiny radar-page pill. The aim is a useful desk
@@ -953,6 +1101,11 @@ bool fetchPlanes() {
   client.setInsecure();
   HTTPClient http;
   http.setTimeout(ADSB_HTTP_TIMEOUT_MS);
+  // HTTP/1.0 plus identity encoding strongly discourages chunked/compressed
+  // transfer bodies. ArduinoJson can stream-parse plain JSON beautifully, but
+  // raw chunk framing looks like invalid JSON and caused the "JSON fail" desk
+  // symptom after the rev1.2.7 heap-saving change.
+  http.useHTTP10(true);
 
   int radiusNm = (int)(ADSB_FETCH_RADIUS_KM / 1.852f) + 4;
   char url[120];
@@ -963,7 +1116,21 @@ bool fetchPlanes() {
     Serial.println("ADS-B begin failed.");
     return false;
   }
+  http.addHeader("Accept", "application/json");
+  http.addHeader("Accept-Encoding", "identity");
+  adsbRateLimited = false;
   int code = http.GET();
+  if (code == 429) {
+    // Rate limited: pause fetching for a while and quietly keep showing the
+    // last good traffic. Marked so loop() does NOT count this toward the
+    // failCount reboot/re-associate spiral — it is throttling, not a fault.
+    adsbRateLimited = true;
+    adsbBackoffUntil = millis() + ADSB_RATELIMIT_BACKOFF_MS;
+    setAdsbFetchStatus("API busy");
+    Serial.println("ADS-B 429 (rate limited) -> backing off");
+    http.end();
+    return false;
+  }
   if (code != 200) {
     char status[20];
     snprintf(status, sizeof(status), "HTTP %d", code);
@@ -979,17 +1146,56 @@ bool fetchPlanes() {
   f["flight"] = f["lat"] = f["lon"] = f["alt_baro"] = f["gs"] = f["track"] = true;
   f["r"] = f["t"] = f["squawk"] = f["baro_rate"] = f["ownOp"] = f["desc"] = true;
 
-  String payload = http.getString();
-  http.end();
-
   JsonDocument doc;
   DeserializationError err =
-      deserializeJson(doc, payload, DeserializationOption::Filter(filter));
-  payload = String();
+      deserializeJson(doc, http.getStream(), DeserializationOption::Filter(filter));
+  http.end();
   if (err) {
-    setAdsbFetchStatus("JSON fail");
-    Serial.printf("ADS-B JSON error: %s\n", err.c_str());
-    return false;
+    // Compatibility escape hatch: if a CDN/proxy still sends something the raw
+    // stream parser cannot consume, retry once using HTTPClient's buffered path.
+    // That path was the old known-good behavior, so this turns a blank desk
+    // radar into a one-off extra request instead of a permanent "JSON fail".
+    Serial.printf("ADS-B stream JSON error: %s; retrying buffered parser.\n", err.c_str());
+    doc.clear();
+
+    WiFiClientSecure retryClient;
+    retryClient.setInsecure();
+    HTTPClient retry;
+    retry.setTimeout(ADSB_HTTP_TIMEOUT_MS);
+    retry.useHTTP10(true);
+    if (!retry.begin(retryClient, url)) {
+      setAdsbFetchStatus("begin fail");
+      Serial.println("ADS-B buffered retry begin failed.");
+      return false;
+    }
+    retry.addHeader("Accept", "application/json");
+    retry.addHeader("Accept-Encoding", "identity");
+    int retryCode = retry.GET();
+    if (retryCode == 200) {
+      String payload = retry.getString();
+      err = deserializeJson(doc, payload, DeserializationOption::Filter(filter));
+      payload = String();
+    } else {
+      if (retryCode == 429) {          // same rate-limit backoff as the primary GET
+        adsbRateLimited = true;
+        adsbBackoffUntil = millis() + ADSB_RATELIMIT_BACKOFF_MS;
+        setAdsbFetchStatus("API busy");
+      } else {
+        char status[20];
+        snprintf(status, sizeof(status), "HTTP %d", retryCode);
+        setAdsbFetchStatus(status);
+      }
+      Serial.printf("ADS-B buffered retry failed: %d (%s)\n",
+                    retryCode, retry.errorToString(retryCode).c_str());
+      retry.end();
+      return false;
+    }
+    retry.end();
+    if (err) {
+      setAdsbFetchStatus("JSON fail");
+      Serial.printf("ADS-B buffered JSON error: %s\n", err.c_str());
+      return false;
+    }
   }
 
   planeCount = 0;
@@ -1080,11 +1286,15 @@ void fetchRoute(const char *callsign, int slot) {
         const char *d  = fr["destination"]["iata_code"]    | "";
         const char *oc = fr["origin"]["municipality"]      | "";
         const char *dc = fr["destination"]["municipality"] | "";
-        strncpy(r.airline, fr["airline"]["name"] | "", sizeof(r.airline)-1);
-        r.airline[sizeof(r.airline)-1] = 0;
+        copyScreenText(r.airline, sizeof(r.airline), fr["airline"]["name"] | "");
         if (o[0] && d[0]) {
-          snprintf(r.codes, sizeof(r.codes), "%s > %s", o, d);
-          snprintf(r.cities, sizeof(r.cities), "%.12s > %.12s", oc, dc);
+          char oCode[8], dCode[8], oCity[18], dCity[18];
+          copyStr(oCode, sizeof(oCode), o);
+          copyStr(dCode, sizeof(dCode), d);
+          copyScreenText(oCity, sizeof(oCity), oc);
+          copyScreenText(dCity, sizeof(dCity), dc);
+          snprintf(r.codes, sizeof(r.codes), "%s > %s", oCode, dCode);
+          snprintf(r.cities, sizeof(r.cities), "%.12s > %.12s", oCity, dCity);
         }
       }
     }
@@ -1330,6 +1540,19 @@ void planeTriangle(int cx, int cy, float trackDeg, int size, uint16_t color) {
   }
   tft.fillTriangle(x[0], y[0], x[1], y[1], x[2], y[2], color);
   tft.drawTriangle(x[0], y[0], x[1], y[1], x[2], y[2], C_BG);
+}
+
+void rimBearingDotAt(int cx, int cy, float bearingDeg, int r, uint16_t color) {
+  // rev1.2.9: tiny out-of-range aircraft marker. Was a line arrow (shaft +
+  // wings); replaced with a small quiet dot on user request ("less
+  // distraction") since a rim full of arrows stole attention from real
+  // traffic. It sits at radius r along bearing-from-centre and only says
+  // "there is more traffic this way", not the aircraft's own heading.
+  float b = deg2rad(bearingDeg);
+  float sx = sinf(b), sy = -cosf(b);
+  int px = cx + (int)(sx * r);
+  int py = cy + (int)(sy * r);
+  tft.fillCircle(px, py, 2, color);
 }
 
 void starSymbol(int cx, int cy, int size, uint16_t color) {
@@ -1965,22 +2188,13 @@ void radarPaint(bool record, bool drawLabels, bool drawGridLabels) {
       if (record) pushBlip(x, y, 15);
 
     } else {
-      // Out-of-range contact: a small blue dot with a short tick pointing
-      // OUTWARD along the bearing-from-you. Rationale (rev1.1.17): every
-      // arrow/triangle attempt at this size (4-6 px) rasterises as an
-      // irregular blob on the GC9A01 — a filled circle is the only primitive
-      // that stays perfectly round that small, and the radial tick still
-      // answers "more traffic out this way" without pretending to show the
-      // aircraft's own heading.
-      float sx = sinf(b);
-      float sy = -cosf(b);
-      x = 120 + (int)(sx * (RADAR_RIM_R - 5));
-      y = 120 + (int)(sy * (RADAR_RIM_R - 5));
-      int tx = 120 + (int)(sx * (RADAR_RIM_R + 1));
-      int ty = 120 + (int)(sy * (RADAR_RIM_R + 1));
-      tft.drawLine(x, y, tx, ty, C_EDGE_BLUE);
-      tft.fillCircle(x, y, 2, C_EDGE_BLUE);
-      if (record) pushBlip(x, y, 9);
+      // Out-of-range contact: a small faint dark-blue dot at the rim along
+      // bearing-from-you (rev1.2.9, was a line arrow). It marks direction of
+      // extra traffic without pulling the eye off in-scope aircraft.
+      rimBearingDotAt(120, 120, liveB, RADAR_RIM_R - 3, C_EDGE_DOT);
+      x = 120 + (int)(sinf(b) * (RADAR_RIM_R - 4));
+      y = 120 - (int)(cosf(b) * (RADAR_RIM_R - 4));
+      if (record) pushBlip(x, y, 12);
     }
   }
 
@@ -2044,49 +2258,90 @@ void radarStep() {
   radarPaint(true, true, false);
 }
 
-// ---------- Airline brand colours (shared by the tracking pages) ----------
+// ---------- Airline brand colours + short names (shared by tracking pages) ----------
 
-// Airline brand colours (user request: colour-code carriers by their dominant
-// logo colour — Ryanair blue, DHL yellow, Wizz pink, ...). One flat table keyed
-// by ICAO callsign prefix keeps additions one line each; the palette constant
-// closest to the real brand colour is used since the UI palette is fixed.
-struct AirlineBrand { const char *pfx; uint8_t r, g, b; };
+// One flat table, keyed by ICAO callsign prefix, does double duty:
+//   * brand colour — the carrier's dominant logo colour, mapped to the closest
+//     tone the fixed UI palette can show (Ryanair navy, DHL yellow, Wizz pink).
+//   * short name   — a tidy, screen-safe carrier label. adsbdb hands back long
+//     legal names ("Deutsche Lufthansa AG", "Lufthansa CityLine GmbH") that
+//     overflow the round card, so when the prefix is known we print this clean
+//     name (kept <=10 chars) instead. Adding a carrier is still one line.
+// Coverage = the carriers that realistically appear around Munich (MUC/EDDM):
+// the Lufthansa group and its regional feeders, European low-cost, the main
+// long-haul flag carriers, and the cargo integrators. An unknown carrier keeps
+// its adsbdb name (truncated) and a neutral amber accent.
+// (struct AirlineBrand is declared up near RouteCache — see the note there.)
 const AirlineBrand airlineBrands[] = {
-  {"RYR", 7,  60, 165},   // Ryanair navy blue
-  {"DHL", 255, 204, 0},   // DHL yellow
-  {"BCS", 255, 204, 0},   // DHL European Air Transport
-  {"WZZ", 230, 40, 130},  // Wizz Air pink
-  {"DLH", 255, 190, 40},  // Lufthansa crane yellow
-  {"CLH", 255, 190, 40},  // Lufthansa CityLine
-  {"LHX", 255, 190, 40},  // Lufthansa City Airlines
-  {"AUA", 200, 16, 46},   // Austrian red
-  {"SWR", 200, 16, 46},   // Swiss red
-  {"EWG", 128, 0,  90},   // Eurowings burgundy
-  {"CFG", 255, 173, 0},   // Condor yellow
-  {"BAW", 23, 66, 133},   // British Airways blue
-  {"AFR", 0,  40, 140},   // Air France blue
-  {"KLM", 0, 161, 228},   // KLM light blue
-  {"EZY", 255, 102, 0},   // easyJet orange
-  {"EJU", 255, 102, 0},   // easyJet Europe
-  {"UAE", 218, 30, 40},   // Emirates red
-  {"QTR", 93, 26, 60},    // Qatar burgundy
-  {"THY", 200, 16, 46},   // Turkish red
-  {"PGT", 240, 78, 60},   // Pegasus
-  {"LOT", 0, 60, 130},    // LOT blue
-  {"SAS", 0, 50, 120},    // SAS blue
-  {"IBE", 210, 0, 50},    // Iberia red
-  {"VLG", 255, 204, 0},   // Vueling yellow
-  {"TAP", 0, 120, 90},    // TAP green
-  {"FDX", 255, 102, 0},   // FedEx orange
-  {"UPS", 100, 60, 20},   // UPS brown
+  // -- Lufthansa group & Star Alliance feeders (the bulk of MUC traffic) --
+  {"DLH", "Lufthansa",  255, 190, 40},  // Lufthansa - crane yellow
+  {"CLH", "Lufthansa",  255, 190, 40},  // Lufthansa CityLine (regional feed)
+  {"LHX", "Lufthansa",  255, 190, 40},  // Lufthansa City Airlines
+  {"DLA", "Dolomiti",   0,  90, 150},   // Air Dolomiti - LH Italian feeder, big at MUC
+  {"AUA", "Austrian",   200, 16, 46},   // Austrian Airlines - red
+  {"SWR", "Swiss",      200, 16, 46},   // Swiss Int'l - red
+  {"EWG", "Eurowings",  128, 0,  90},   // Eurowings - burgundy
+  {"BEL", "Brussels",   0,  40, 110},   // Brussels Airlines - navy
+  {"SAS", "SAS",        0,  50, 120},   // Scandinavian - blue
+  {"LOT", "LOT",        0,  60, 130},   // LOT Polish - blue
+  {"TAP", "TAP",        0, 120, 90},    // TAP Air Portugal - green
+  {"AEE", "Aegean",     0,  90, 160},   // Aegean - blue
+  {"FIN", "Finnair",    0,  60, 130},   // Finnair - blue
+  {"SIA", "Singapore",  40, 40, 120},   // Singapore Airlines - navy
+  {"UAL", "United",     0,  60, 130},   // United - blue
+  {"ACA", "Air Canada", 210, 0,  40},   // Air Canada - red
+  // -- SkyTeam / other flag carriers --
+  {"AFR", "Air France", 0,  40, 140},   // Air France - blue
+  {"KLM", "KLM",        0, 161, 228},   // KLM - light blue
+  {"DAL", "Delta",      200, 16, 46},   // Delta - red
+  {"ITY", "ITA",        0,  40, 90},    // ITA Airways - blue
+  {"AAL", "American",   90, 110, 130},  // American - silver/blue
+  {"IBE", "Iberia",     210, 0, 50},    // Iberia - red
+  {"EIN", "Aer Lingus", 0, 120, 80},    // Aer Lingus - green
+  // -- oneworld / Gulf / Turkish long-haul --
+  {"BAW", "British",    23, 66, 133},   // British Airways - blue
+  {"UAE", "Emirates",   218, 30, 40},   // Emirates - red
+  {"QTR", "Qatar",      93, 26, 60},    // Qatar Airways - burgundy
+  {"ETD", "Etihad",     200, 160, 90},  // Etihad - sand/gold
+  {"THY", "Turkish",    200, 16, 46},   // Turkish Airlines - red
+  // -- low-cost --
+  {"RYR", "Ryanair",    7,  60, 165},   // Ryanair - navy blue
+  {"WZZ", "Wizz Air",   230, 40, 130},  // Wizz Air - pink
+  {"EZY", "easyJet",    255, 102, 0},   // easyJet - orange
+  {"EJU", "easyJet",    255, 102, 0},   // easyJet Europe
+  {"VLG", "Vueling",    255, 204, 0},   // Vueling - yellow
+  {"PGT", "Pegasus",    240, 78, 60},   // Pegasus - red/orange
+  {"CFG", "Condor",     255, 173, 0},   // Condor - yellow
+  {"SXS", "SunExpres",  0,  90, 160},   // SunExpress - blue
+  // -- cargo / integrators --
+  {"DHL", "DHL",        255, 204, 0},   // DHL - yellow
+  {"BCS", "DHL",        255, 204, 0},   // DHL European Air Transport
+  {"FDX", "FedEx",      255, 102, 0},   // FedEx - orange
+  {"UPS", "UPS",        100, 60, 20},   // UPS - brown
 };
+
+// Look up the brand-table entry for an aircraft by its callsign prefix.
+const AirlineBrand *airlineBrandFor(const Aircraft &n) {
+  for (unsigned i = 0; i < sizeof(airlineBrands)/sizeof(airlineBrands[0]); i++)
+    if (strncmp(n.flight, airlineBrands[i].pfx, 3) == 0)
+      return &airlineBrands[i];
+  return NULL;
+}
 
 uint16_t airlineAccentColor(const Aircraft &n, const char *who) {
   (void)who;   // callsign prefix is the reliable key; the name is decorative
-  for (unsigned i = 0; i < sizeof(airlineBrands)/sizeof(airlineBrands[0]); i++)
-    if (strncmp(n.flight, airlineBrands[i].pfx, 3) == 0)
-      return tft.color565(airlineBrands[i].r, airlineBrands[i].g, airlineBrands[i].b);
+  const AirlineBrand *b = airlineBrandFor(n);
+  if (b) return tft.color565(b->r, b->g, b->b);
   return C_AMBER;   // unknown carrier: neutral accent
+}
+
+// Screen-safe carrier name: the tidy table label when the prefix is known,
+// otherwise the adsbdb name. Always clipped to maxChars so a long legal name
+// can never run off the round card.
+void airlineShortName(const Aircraft &n, const char *adsbdbName,
+                      char *dst, size_t dstN, int maxChars) {
+  const AirlineBrand *b = airlineBrandFor(n);
+  fitCopy(dst, dstN, b ? b->disp : (adsbdbName ? adsbdbName : ""), maxChars);
 }
 
 // ---------- Page 3: TRAFFIC BRIEF (candidate pickers) ----------
@@ -2225,7 +2480,7 @@ void drawBriefRow(int y, const char *tag, uint16_t tagColor, int idx, bool withR
   } else {
     RouteCache *route = cachedRouteFor(p.flight);
     if (route && route->codes[0])        fitCopy(detail, sizeof(detail), route->codes, 22);
-    else if (route && route->airline[0]) fitCopy(detail, sizeof(detail), route->airline, 22);
+    else if (route && route->airline[0]) airlineShortName(p, route->airline, detail, sizeof(detail), 20);
     else                                 fitCopy(detail, sizeof(detail), typeName(p.typ), 22);
   }
   printFit(78, y + 11, detail, 1, C_DIM, 126);
@@ -2318,9 +2573,9 @@ int trackBlipPrevTX = -1000, trackBlipPrevTY = -1000;
 
 void trackDrawBearingBlip(const Aircraft &n) {
   // rev1.2.0: small RED rim blip pointing along the bearing from YOUR
-  // position to the tracked aircraft — step outside, face this way, look up.
-  // Same dot-with-outward-tick shape as the blue rim contacts, kept inside
-  // r=104 so clearInnerChrome() and the erase below both cover it fully.
+  // position to the tracked aircraft - step outside, face this way, look up.
+  // This one remains a compact dot/tick because it has a custom 1 s erase
+  // path and stays inside r=104 so clearInnerChrome() covers it fully.
   if (trackBlipPrevX > -900) {
     tft.drawLine(trackBlipPrevX, trackBlipPrevY,
                  trackBlipPrevTX, trackBlipPrevTY, C_BG);
@@ -2396,7 +2651,10 @@ void trackLiveTick() {
 }
 
 void trackPageDraw(int idx, const char *headerTag, uint16_t tagColor,
-                   const char *whyLine) {
+                   const char *whyLine, uint16_t whyColor) {
+  // rev1.2.5: tag colour and why-line colour are separate — the page tag is
+  // quiet grey, while the MUC-relation line carries the traffic grammar:
+  // GREEN = arriving at Munich, RED = departing Munich.
   // rev1.1.23: pure DATA CARD, per user request ("remove the tracking and
   // grid altogether, just give me data in nice format, centered and as big
   // as possible"). No mini-map, no rings, no trail — one aircraft, an
@@ -2419,10 +2677,17 @@ void trackPageDraw(int idx, const char *headerTag, uint16_t tagColor,
   // fallback for long callsigns.
   centerText(n.flight, 36, (int)strlen(n.flight) <= 7 ? 3 : 2, C_AMBER);
   char who[34];
-  if (route && route->airline[0])
-    snprintf(who, sizeof(who), "%.14s  %.14s", typeName(n.typ), route->airline);
-  else
+  if (route && route->airline[0]) {
+    // rev1.2.6: use the tidy short carrier name (<=10 chars) rather than the
+    // raw adsbdb legal name, so "type + airline" always fits the round card's
+    // ~28-char chord at y=64 (14 type + 2 gap + 10 airline) instead of being
+    // clipped mid-word.
+    char al[16];
+    airlineShortName(n, route->airline, al, sizeof(al), 10);
+    snprintf(who, sizeof(who), "%.14s  %s", typeName(n.typ), al);
+  } else {
     fitCopy(who, sizeof(who), typeName(n.typ), 26);
+  }
   // Airline brand colour when the carrier is known (Lufthansa yellow,
   // Ryanair navy, ...).
   centerText(who, 64, 1,
@@ -2433,7 +2698,7 @@ void trackPageDraw(int idx, const char *headerTag, uint16_t tagColor,
   else                           centerText("-- > --", 76, 2, C_GRIDDIM);
   if (route && route->cities[0]) centerText(route->cities, 94, 1, C_DIM);
   else                           centerText("route n/a", 94, 1, C_GRIDDIM);
-  if (whyLine && whyLine[0]) centerText(whyLine, 106, 1, tagColor);
+  if (whyLine && whyLine[0]) centerText(whyLine, 106, 1, whyColor);
 
   tft.drawFastHLine(72, 116, 96, C_GRIDDIM);
 
@@ -2447,11 +2712,13 @@ void trackDynamic() {
   // right under the route lines.
   int idx = nearestAirborne();
   const char *why = NULL;
+  uint16_t whyColor = C_DIM;
   if (idx >= 0) {
-    if (likelyArrival(planes[idx]))        why = "Munich arrival";
-    else if (likelyDeparture(planes[idx])) why = "departing Munich";
+    if (likelyArrival(planes[idx]))        { why = "Munich arrival";   whyColor = C_GREEN; }
+    else if (likelyDeparture(planes[idx])) { why = "departing Munich"; whyColor = C_RED; }
   }
-  trackPageDraw(idx, "NEAREST", C_CYAN, why);
+  // rev1.2.5: quiet grey page tag (was cyan).
+  trackPageDraw(idx, "NEAREST", C_DIM, why, whyColor);
 }
 
 void coolestStatic() {
@@ -2488,17 +2755,24 @@ void coolestDynamic() {
   // in the header slot (colour signals urgency: red = emergency/very rare).
   int ci = coolestIdx();
   if (ci < 0) {
-    trackPageDraw(-1, "COOLEST", C_AMBER, NULL);
+    trackPageDraw(-1, "COOLEST", C_DIM, NULL, C_DIM);
     return;
   }
   Aircraft &p = planes[ci];
   const char *label;
   int score = coolScore(p, &label);
-  uint16_t tagColor = score >= 85 ? C_RED : (score >= 50 ? C_AMBER : C_DIM);
+
+  // rev1.2.5: quiet grey page tag; the why-line carries the colour —
+  // GREEN Munich arrival, RED departure, red also for emergencies/very rare,
+  // amber for other notable reasons.
+  uint16_t whyColor = score >= 85 ? C_RED : (score >= 50 ? C_AMBER : C_DIM);
+  if (likelyArrival(p))            whyColor = C_GREEN;
+  else if (likelyDeparture(p))     whyColor = C_RED;
+  if (isEmergencySquawk(p))        whyColor = C_RED;
 
   char why[34];
   buildCoolWhyLine(p, label, why, sizeof(why));
-  trackPageDraw(ci, "COOLEST", tagColor, why);
+  trackPageDraw(ci, "COOLEST", C_DIM, why, whyColor);
 }
 
 // ---------- Page 2: MUC AIRPORT ----------
@@ -2941,7 +3215,7 @@ void airportDynamic() {
 
     // Visual grammar of the operations map (rev1.1.18 scope: 20 km on-map,
     // 20-40 km at the edge, >40 km hidden):
-    //   blue dot + tick = 20-40 km out, pinned to the edge (home-radar style)
+    //   blue rim arrow = 20-40 km out, pinned to the edge (home-radar style)
     //   purple circle = stationary/ground aircraft on the field
     //   green symbol  = arriving traffic
     //   red symbol    = departing traffic
@@ -2950,22 +3224,21 @@ void airportDynamic() {
     // Only next ARR/DEP get text labels (no track extrapolation — rev1.1.19).
     bool onRwy = onMucRunway(liveE, liveN) && (p.ground || p.altFt < 900);
     if (clampedToEdge) {
-      // Edge contact (20-40 km out): same dot-with-outward-tick marker as the
-      // home radar rim, and pushed to the SAME screen rim radius as page 1
-      // (r=99..105 around the screen centre) instead of hugging the smaller
-      // map circle. One guard: markers whose spot falls on the counter /
-      // weather strip at the top are skipped — instrument numbers always win.
+      // Edge contact (20-40 km out): same faint rim DOT as the home radar rim,
+      // pushed to the SAME screen rim radius as page 1 (r~102 around the screen
+      // centre) instead of hugging the smaller map circle. One guard: markers
+      // whose spot falls on the counter / weather strip at the top are skipped
+      // — instrument numbers always win.
       float ux = dMucE / dMuc, uy = dMucN / dMuc;
       int cx2 = 120 + (int)(ux * 99);
       int cy2 = 120 - (int)(uy * 99);
       bool onCounters   = (cy2 < 66  && cx2 > 56 && cx2 < 184);
       bool onSouthLabel = (cy2 > 200 && cx2 > 88 && cx2 < 152);
       if (!onCounters && !onSouthLabel) {
-        int tx2 = 120 + (int)(ux * 105);
-        int ty2 = 120 - (int)(uy * 105);
-        // rev1.2.3: same blue as the home radar rim (user: match the pages).
-        tft.drawLine(cx2, cy2, tx2, ty2, C_EDGE_BLUE);
-        tft.fillCircle(cx2, cy2, 2, C_EDGE_BLUE);
+        // rev1.2.9: small faint dark-blue dot (was a line arrow), shared with
+        // the home radar rim for one consistent, low-distraction edge marker.
+        float edgeBearing = fmodf(atan2f(ux, uy) * 57.29578f + 360.0f, 360.0f);
+        rimBearingDotAt(120, 120, edgeBearing, 102, C_EDGE_DOT);
       }
     } else if (onRwy) {
       // Aircraft actually on the runway: yellow marker, sized by wake class
@@ -3128,8 +3401,10 @@ void mucWeatherDynamic() {
   tft.fillScreen(C_BG);
   // rev1.2.4: header lowered off the top edge + small grey "airport"
   // sub-line, matching the header grammar of the other pages.
+  // rev1.2.9: sub-line brightened from dim green to a light grey so it reads
+  // more clearly under the MUC header.
   centerText("MUC", 26, 2, C_AMBER);
-  centerText("airport", 46, 1, C_GRIDDIM);
+  centerText("airport", 46, 1, C_GREY);
   bool ok = fetchMucWeather();
   if (!ok) {
     centerText("no METAR yet", 104, 2, C_DIM);
@@ -3314,7 +3589,7 @@ void handlePageButton(uint32_t now) {
 void setup() {
   Serial.begin(115200);
   delay(300);
-  Serial.println("Plane Radar rev1.2.4 booting...");
+  Serial.println("Plane Radar rev1.2.8 booting...");
   pinMode(PAGE_BUTTON_PIN, INPUT_PULLUP);
   if (PAGE_BUTTON_ENABLED)
     attachInterrupt(digitalPinToInterrupt(PAGE_BUTTON_PIN), pageButtonIsr, CHANGE);
@@ -3337,13 +3612,20 @@ void setup() {
 }
 
 void loop() {
+  static uint8_t wifiLostStreak = 0;
   if (WiFi.status() != WL_CONNECTED) {
     splash("wifi lost", "reconnecting...", C_ORANGE);
     WiFi.reconnect();
     delay(4000);
+    if (++wifiLostStreak >= 8) {
+      Serial.println("MAINT: WiFi stayed down -> restart");
+      delay(100);
+      ESP.restart();
+    }
     drawPageFull();
     return;
   }
+  wifiLostStreak = 0;
 
   uint32_t now = millis();
   handlePageButton(now);
@@ -3388,6 +3670,10 @@ void loop() {
   // recovered. Successful fetches keep the polite 8 s cadence.
   uint32_t fetchInterval = failCount ? 3000UL : FETCH_INTERVAL_MS;
   bool fetchDue = (now - lastFetchAttempt >= fetchInterval || lastFetchAttempt == 0);
+  // rev1.2.9: while a 429 rate-limit backoff is active, do not fetch at all —
+  // the API asked us to ease off, so we wait out adsbBackoffUntil and keep the
+  // last good traffic on screen. (int32 subtraction is millis()-rollover safe.)
+  if ((int32_t)(now - adsbBackoffUntil) < 0) fetchDue = false;
   bool buttonBusy = pageButtonDownNow() || btnEvent != 0;
   if (fetchDue && !buttonBusy) {
     bool first = !haveAircraftData;
@@ -3435,14 +3721,24 @@ void loop() {
         drawPageUpdate();
       }
     } else {
-      failCount++;
-      Serial.printf("ADS-B retry %d: %s\n", failCount, adsbFetchStatus);
-      handlePageButton(millis());
-      // Redraw even on failed fetches so the user sees a live radar shell plus
-      // the latest retry reason. This is especially important before the first
-      // successful packet, when otherwise the display can look stuck at boot.
-      if (first || page == PAGE_RADAR) drawPageFull();
-      else drawPageUpdate();
+      // rev1.2.9: a 429 rate-limit is throttling, not a fault — don't bump
+      // failCount (which drives the WiFi re-associate / restart guards) and
+      // don't repaint an alarming pill; just keep the last good traffic until
+      // the backoff expires.
+      if (!adsbRateLimited) {
+        failCount++;
+        Serial.printf("ADS-B retry %d: %s\n", failCount, adsbFetchStatus);
+        handlePageButton(millis());
+        // Redraw even on failed fetches so the user sees a live radar shell plus
+        // the latest retry reason. This is especially important before the first
+        // successful packet, when otherwise the display can look stuck at boot.
+        if (first || page == PAGE_RADAR) drawPageFull();
+        else drawPageUpdate();
+      } else if (first) {
+        // Very first packet was rate-limited: still show the live radar shell
+        // so the device never looks frozen at boot.
+        drawPageFull();
+      }
     }
   }
 
