@@ -44,12 +44,10 @@
 // How often to fetch new aircraft data (ms; be nice to the free API).
 #define FETCH_INTERVAL_MS 8000
 
-// Tracking pages never zoom in closer than this view radius (km). Default 10.
-//#define TRACK_RANGE_MIN_KM 10.0f
-
-// Regional activity count and ADS-B fetch radius. Keep these at 60 km to match
-// the main radar and the MUC airport traffic page without overloading the rim.
-//#define ACTIVITY_RADIUS_KM 60.0f
+// Wide-area activity count (TRAFFIC BRIEF footer, centred on your location)
+// and ADS-B fetch radius. Display pages keep their own tighter ranges
+// (radar 60 km, MUC map 20/40 km) regardless of this value.
+//#define ACTIVITY_RADIUS_KM 100.0f
 //#define ADSB_FETCH_RADIUS_KM ACTIVITY_RADIUS_KM
 
 // MUC Airport page traffic radius. The runways stay as a readable centered
@@ -61,14 +59,8 @@
 //#define BRIEF_HELI_RANGE_KM 45.0f
 //#define BRIEF_EMERGENCY_RANGE_KM 60.0f
 
-// Airport map zoom, pixels per km. 26 = runway close-up, 16 (default) also
-// shows the approach and departure flows around the field.
-//#define MUC_MAP_SCALE 16.0f
-
-// Optional OpenSky regional cross-check page. It is a slow backup/source-count
-// view, not the main aircraft feed. Disable it if OpenSky rate limits your IP.
-//#define OPENSKY_ENABLED 1
-//#define OPENSKY_RANGE_KM 60.0f
+// Airport map runway-schematic zoom, pixels per km (default 22).
+//#define MUC_MAP_SCALE 22.0f
 
 // Auto page carousel: 1 (default) = pages rotate by themselves, 0 = button only.
 //#define AUTO_SCROLL_ENABLED 1

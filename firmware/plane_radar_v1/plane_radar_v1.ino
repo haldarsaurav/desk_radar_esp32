@@ -1,5 +1,5 @@
 /*
-  plane_radar_v1.ino — rev1.1.22 — Munich aviation desk radar (ESP32-C3 + GC9A01).
+  plane_radar_v1.ino — rev1.2.0 (FINAL) — Munich aviation desk radar (ESP32-C3 + GC9A01).
 
   Hardware: ESP32-C3 Super Mini + GC9A01 1.28" round display (240x240)
   Wiring:   see docs/display_wiring_guide.html and docs/device_manual.html
@@ -13,6 +13,65 @@
             your location. Everything else has sensible defaults (see the
             CONFIG DEFAULTS block below) so the device is gift-ready: a new
             owner only edits Wi-Fi + lat/lon + home airport.
+
+  ================================ rev1.2.0 ================================
+  FINAL polish pass:
+    - Home radar rim blues darkened (C_EDGE_BLUE), MUC map rim blues fainter
+      still (C_EDGE_BLUE_MAP) — the bright ring of dots stole attention.
+    - MUC map labels: two tight lines — "CALLSIGN fr/to" over "ARR/DEP +
+      ETA/km" (the one-line form crossed the runways).
+    - TRAFFIC page header now matches the MUC page: size-3 amber "TRFC" +
+      small "nearby". EMERGENCY squawks jump the carousel to THIS page;
+      rare airframes still jump to COOLEST.
+    - Tracking cards: unknown routes render "-- > --" / "route n/a" instead
+      of empty rows; a small RED rim blip points along the bearing from your
+      position to the aircraft (where to look outside).
+    - Tracking cards tick LIVE: 1 s partial refresh of ALT/SPD/DST/CPA (and
+      the rim blip) on background pads — CPA counts down smoothly, DST moves
+      by dead reckoning between fetches, no full-screen flicker.
+    - Boot: splash reads PLANE RADAR / S A U R A V, and a little amber
+      aircraft flies across the scope with a dotted contrail after the ping.
+  ==========================================================================
+
+  =============================== rev1.1.24 ===============================
+  Bug fixes from device photos + videos:
+    - "retry HTTP -11" pill persisted: failed ADS-B fetches now retry after
+      3 s instead of the full 8 s interval, so transient API timeouts clear
+      quickly. (-11 = read timeout: the server was slow, device was fine.)
+    - Page button lag: prefetch now also yields to an already-latched press
+      (btnEvent), not just a physically held button — a press landing during
+      one route fetch no longer waits for the next fetch to finish too.
+    - Parked aircraft (ELEKT15 etc.) can no longer win "next departure" on
+      the MUC map; ground candidates need >= 5 kt of taxi movement.
+    - COOLEST mislabel fixed: a C172 was announced as "C-17 GLOBEMASTER"
+      (C17 prefix-matched C172). Short military type codes now match exactly.
+    - HELI row on TRAFFIC BRIEF now uses the reason line, so it reports the
+      operator role (POLICE/RESCUE/SAR/CIVIL) instead of repeating the type.
+    - Activity footer label moved above the number — "100km around you" was
+      chord-clipped to "100km a" at the very bottom of the panel.
+    - NEAREST/COOLEST cards pushed down + spread out to fill the circle, and
+      the route now also shows FULL city names (e.g. "Munich > Paris") under
+      the code pair.
+  =========================================================================
+
+  =============================== rev1.1.23 ===============================
+  Big restructure pass (user feedback on the rev1.1.22 device):
+    - MUC MAP: header stack lowered a few px; the next-ARR/DEP labels are
+      now ONE line — callsign + status + fr/to side by side (saves space).
+    - TRAFFIC BRIEF: helicopters get an operator role from their callsign
+      (RESCUE "Christoph"/POLICE/SAR/MILITARY, else CIVIL + type). The
+      activity counter is now a 100 km wide-area count and its label says
+      "around you" — it is centred on YOUR location (HOME_LAT/LON), and
+      always was; the fetch radius grew 60 -> 100 km to feed it. Display
+      pages keep their own tighter ranges (radar 60, MUC map 20/40).
+    - NEAREST/COOLEST redesigned as pure DATA CARDS: mini-map, rings and
+      trail history all removed. Identity block (callsign size-3, airline in
+      brand colour, route, why-line) + big centred ALT/SPD/DST rows +
+      vertical trend + CPA line. Plain quiet bezel ring, no tick grid.
+    - Pages removed entirely: MUC TAF, MUC FIELD, OPEN SKY (+ their caches,
+      fetch code and OPENSKY_* config). Carousel is six live pages again:
+      RADAR > MUC MAP > BRIEF > NEAREST > COOLEST > WEATHER.
+  =========================================================================
 
   =============================== rev1.1.22 ===============================
   MUC MAP header final pass + prefetch bug fix:
@@ -465,13 +524,7 @@
 #define MUC_MAP_SCALE 22.0f          // runway-schematic px-per-km (rev1.1.18
 #endif                               // enlarged from 16 so the slabs dominate)
 
-#ifndef OPENSKY_ENABLED
-#define OPENSKY_ENABLED 1            // optional regional cross-check page
-#endif
-
-#ifndef OPENSKY_RANGE_KM
-#define OPENSKY_RANGE_KM 60.0f       // OpenSky bbox around MUC for page 9
-#endif
+// (rev1.1.23: OPENSKY_* config removed together with the OPEN SKY page.)
 
 // Munich Airport reference point + runway geometry (schematic)
 #define MUC_LAT 48.3538
@@ -508,7 +561,10 @@ Adafruit_GC9A01A tft(TFT_CS, TFT_DC, TFT_RST);
 #define C_GREEN        tft.color565(60, 240, 120)
 #define C_BLUE         tft.color565(72, 150, 255)
 #define C_BLUE_DIM     tft.color565(22, 62, 112)    // faint but readable edge contacts
-#define C_EDGE_BLUE    tft.color565(38, 128, 255)   // solid home-radar rim aircraft
+// rev1.2.0: rim-marker blues toned down on user request — full-brightness
+// blue dots ringed the whole scope and stole attention from real traffic.
+#define C_EDGE_BLUE    tft.color565(24, 84, 168)    // home-radar rim aircraft (darker)
+#define C_EDGE_BLUE_MAP tft.color565(16, 56, 116)   // MUC map rim aircraft (fainter still)
 #define C_CENTER_DOT   tft.color565(92, 124, 145)   // dim receiver marker
 #define C_PURPLE       tft.color565(186, 96, 255)   // stationary/ground traffic on the MUC map
 #define C_GREY         tft.color565(130, 140, 150)
@@ -554,24 +610,18 @@ uint32_t lastFetch = 0, lastFetchAttempt = 0, lastPageSwitch = 0;
 int      failCount = 0;
 bool     haveAircraftData = false;
 char     adsbFetchStatus[20] = "waiting";
-// Page order: the original six live pages stay first and keep their behaviour.
-// rev1.1.5 only appends three slow/reference pages after MUC WX, so the user's
-// existing radar/airport/tracking rhythm remains intact.
+// Page order (rev1.1.23: back to six live pages — the TAF, MUC INFO and
+// OPEN SKY reference pages were removed on user request).
 #define PAGE_RADAR    0
 #define PAGE_MUC_MAP  1
 #define PAGE_SUMMARY  2
 #define PAGE_NEAREST  3
 #define PAGE_COOLEST  4
 #define PAGE_MUC_WX   5
-#define PAGE_MUC_TAF  6
-#define PAGE_MUC_INFO 7
-#define PAGE_OPENSKY  8
-#define PAGE_COUNT    9
+#define PAGE_COUNT    6
 uint8_t  page = PAGE_RADAR;
-// First six dwell times are unchanged. New source/reference pages rotate
-// quickly because they are useful context, not the main live spotting view.
 const uint32_t pageDur[PAGE_COUNT] = {
-  26000, 17000, 16000, 22000, 22000, 13000, 13000, 15000, 13000
+  26000, 17000, 16000, 22000, 22000, 13000
 };
 
 // Manual page button.
@@ -658,71 +708,13 @@ MucWeather mucWx;
 // only controls actual network I/O.
 #define MUC_WX_REFRESH_MS 300000UL
 
-struct MucTaf {
-  bool ok = false;
-  char raw[160]   = "";
-  char valid[14]  = "--";
-  char wind[16]   = "--";
-  char vis[12]    = "--";
-  char cloud[14]  = "--";
-  char wx[12]     = "DRY";
-  char change[16] = "NONE";
-  uint32_t lastFetch = 0;
-};
-MucTaf mucTaf;
+// rev1.1.23: the MUC TAF, MUC INFO and OPEN SKY pages were removed on user
+// request (the carousel is back to six live pages), together with their
+// caches (MucTaf, OpenSkyStats) and fetch code.
 
-// TAFs normally update far more slowly than aircraft positions. Keeping this
-// refresh at 15 minutes makes the forecast page useful without hammering the
-// free AviationWeather service or blocking page-button interaction often.
-#define MUC_TAF_REFRESH_MS 900000UL
-
-struct OpenSkyStats {
-  bool ok = false;
-  int total = 0;
-  int adsb = 0;
-  int mlat = 0;
-  int flarm = 0;
-  int ground = 0;
-  int heavy = 0;
-  int rotor = 0;
-  int stale = 0;
-  uint32_t apiTime = 0;
-  uint32_t lastFetch = 0;
-};
-OpenSkyStats openSky;
-
-// OpenSky is a secondary cross-check, not the main live data source. It is
-// queried slowly and only when the page is visible so its credit/rate limits
-// cannot disturb the primary adsb.lol radar loop.
-#define OPENSKY_REFRESH_MS 300000UL
-#define OPENSKY_HTTP_TIMEOUT_MS 5200
-
-// Flown-path history buffers. One trail follows the nearest airborne
-// aircraft (NEAREST page), a second follows the current coolest aircraft
-// (COOLEST page). Both reset automatically when "their" aircraft changes.
-#define TRAIL_MAX 20
-struct Trail {
-  float e[TRAIL_MAX], n[TRAIL_MAX];
-  int   len = 0;
-  char  forCs[10] = "";
-};
-Trail trailNear, trailCool;
-
-void trailPush(Trail &t, const Aircraft &p) {
-  if (strcmp(t.forCs, p.flight) != 0) {
-    strncpy(t.forCs, p.flight, sizeof(t.forCs) - 1);
-    t.forCs[sizeof(t.forCs) - 1] = 0;
-    t.len = 0;
-  }
-  if (t.len == TRAIL_MAX) {
-    memmove(t.e, t.e + 1, sizeof(float) * (TRAIL_MAX - 1));
-    memmove(t.n, t.n + 1, sizeof(float) * (TRAIL_MAX - 1));
-    t.len--;
-  }
-  t.e[t.len] = p.eastKm;
-  t.n[t.len] = p.northKm;
-  t.len++;
-}
+// rev1.1.23: the Trail history buffers (flown-path polylines for the
+// NEAREST/COOLEST mini-maps) were removed together with the mini-maps
+// themselves — the tracking pages are now pure data cards.
 
 // Live-motion animation state.
 //
@@ -733,6 +725,7 @@ void trailPush(Trail &t, const Aircraft &p) {
 // jitter. A calm ~1 s traffic step reads far better on this small panel.
 #define RADAR_STEP_MS   1200
 #define AIRPORT_STEP_MS 1400
+#define TRACK_STEP_MS   1000   // rev1.2.0: live CPA/DST tick on tracking pages
 uint32_t lastRadarStep = 0, lastLiveStep = 0, radarZoomWindowStart = 0;
 uint8_t  radarZoomCycleSlot = 0;
 
@@ -926,17 +919,21 @@ const char *typeName(const char *code) {
 }
 
 // ---------- Coolness scoring ----------
-struct CoolRule { const char *pfx; uint8_t score; const char *label; };
+// rev1.1.24: `exact` flag added. Device photo showed a Cessna 172 labelled
+// "C-17 GLOBEMASTER" — the C17 rule prefix-matched C172. Short military type
+// codes now require an exact type match; civilian family rules (B78, A33,
+// B76) intentionally keep prefix matching for their -8/-9 / -2/-3 variants.
+struct CoolRule { const char *pfx; uint8_t score; const char *label; bool exact; };
 
 const CoolRule typeRules[] = {
   {"A388", 100, "SUPERJUMBO A380"},
   {"A124",  99, "ANTONOV AN-124"},
-  {"B52",   99, "B-52 BOMBER"},
-  {"C5M",   97, "C-5 GALAXY"},
-  {"C17",   96, "C-17 GLOBEMASTER"},
+  {"B52",   99, "B-52 BOMBER", true},
+  {"C5M",   97, "C-5 GALAXY", true},
+  {"C17",   96, "C-17 GLOBEMASTER", true},
   {"EUFI",  96, "EUROFIGHTER"},
-  {"F16",   95, "FIGHTER JET"},
-  {"F35",   95, "FIGHTER JET"},
+  {"F16",   95, "FIGHTER JET", true},
+  {"F35",   95, "FIGHTER JET", true},
   {"A400",  93, "A400M ATLAS"},
   {"C130",  90, "C-130 HERCULES"},
   {"IL76",  90, "ILYUSHIN IL-76"},
@@ -984,9 +981,15 @@ int coolScore(const Aircraft &p, const char **label) {
   // "plane spotter" signals because they identify rare airframes, government
   // flights, military transports, and other traffic worth calling out even when
   // it is not the closest aircraft to the desk.
-  for (unsigned i = 0; i < sizeof(typeRules)/sizeof(typeRules[0]); i++)
-    if (strncmp(p.typ, typeRules[i].pfx, strlen(typeRules[i].pfx)) == 0 &&
-        typeRules[i].score > best) { best = typeRules[i].score; *label = typeRules[i].label; }
+  for (unsigned i = 0; i < sizeof(typeRules)/sizeof(typeRules[0]); i++) {
+    bool m = typeRules[i].exact
+                 ? (strcmp(p.typ, typeRules[i].pfx) == 0)
+                 : (strncmp(p.typ, typeRules[i].pfx, strlen(typeRules[i].pfx)) == 0);
+    if (m && typeRules[i].score > best) {
+      best = typeRules[i].score;
+      *label = typeRules[i].label;
+    }
+  }
   for (unsigned i = 0; i < sizeof(csRules)/sizeof(csRules[0]); i++)
     if (strncmp(p.flight, csRules[i].pfx, strlen(csRules[i].pfx)) == 0 &&
         csRules[i].score > best) { best = csRules[i].score; *label = csRules[i].label; }
@@ -1113,19 +1116,32 @@ void splash(const char *l1, const char *l2, uint16_t color) {
   tft.fillScreen(C_BG);
   drawBezel();
   centerText("PLANE RADAR", 88, 2, C_AMBER);
-  centerText("F R E I S I N G", 108, 1, C_GRID);
+  centerText("S A U R A V", 108, 1, C_GRID);   // rev1.2.0: owner's mark
   centerText(l1, 130, 1, C_DIM);
   centerText(l2, 144, 1, color);
 }
 
 void bootAnimation() {
   tft.fillScreen(C_BG);
+  // Expanding radar ping, as before...
   for (int r = 8; r <= 116; r += 4) {
     tft.drawCircle(120, 120, r, C_SWEEP);
     if (r > 12) tft.drawCircle(120, 120, r - 4, C_BG);
     delay(14);
   }
   tft.drawCircle(120, 120, 112, C_BG);
+  // ...then (rev1.2.0) a little aircraft flies west-to-east across the scope,
+  // leaving a short dotted contrail. splash() clears the screen afterwards,
+  // so the animation needs no cleanup pass of its own.
+  int prevX = -1000;
+  for (int x = -12; x <= 252; x += 5) {
+    if (prevX > -900) tft.fillCircle(prevX, 120, 9, C_BG);
+    planeTriangle(x, 120, 90, 6, C_AMBER);
+    if ((x / 5) % 4 == 0 && x - 16 > 0 && x - 16 < 240)
+      tft.fillCircle(x - 16, 120, 1, C_GRIDDIM);   // contrail puff
+    prevX = x;
+    delay(16);
+  }
   splash("", "", C_DIM);
 }
 
@@ -1273,16 +1289,6 @@ bool fetchPlanes() {
       }
 
   updateRadarAutoZoom();
-
-  // Feed both path histories from the fresh fetch: the NEAREST page follows
-  // the closest airborne aircraft, the COOLEST page follows the top-scored
-  // one. trailPush() resets automatically when the tracked callsign changes,
-  // which is exactly the "auto-switch to the new nearest aircraft" behaviour
-  // the tracking pages need.
-  int na = nearestAirborne();
-  if (na >= 0) trailPush(trailNear, planes[na]);
-  int ci = coolestIdx();
-  if (ci >= 0) trailPush(trailCool, planes[ci]);
 
   Serial.printf("Aircraft: %d stored, %d within %.0fkm, heap: %u\n",
                 planeCount, activityRadiusCount, (double)ACTIVITY_RADIUS_KM,
@@ -1550,160 +1556,9 @@ bool fetchMucWeather() {
   return true;
 }
 
-bool tafValidPeriodToken(const char *tok) {
-  // TAF valid periods look like 0306/0412: day+hour slash day+hour. We keep
-  // the raw compact token because it fits the display and avoids pretending to
-  // know the user's preferred date format/time zone on a tiny MCU.
-  return strlen(tok) >= 9 &&
-         asciiDigit(tok[0]) && asciiDigit(tok[1]) &&
-         asciiDigit(tok[2]) && asciiDigit(tok[3]) &&
-         tok[4] == '/' &&
-         asciiDigit(tok[5]) && asciiDigit(tok[6]) &&
-         asciiDigit(tok[7]) && asciiDigit(tok[8]);
-}
-
-void parseTafSummary() {
-  copyStr(mucTaf.valid,  sizeof(mucTaf.valid),  "--");
-  copyStr(mucTaf.wind,   sizeof(mucTaf.wind),   "--");
-  copyStr(mucTaf.vis,    sizeof(mucTaf.vis),    "--");
-  copyStr(mucTaf.cloud,  sizeof(mucTaf.cloud),  "--");
-  copyStr(mucTaf.wx,     sizeof(mucTaf.wx),     "DRY");
-  copyStr(mucTaf.change, sizeof(mucTaf.change), "NONE");
-
-  int becmg = 0, tempo = 0, prob = 0;
-  char work[192];
-  copyStr(work, sizeof(work), mucTaf.raw);
-  char *tok = strtok(work, " \r\n");
-  while (tok) {
-    if (tafValidPeriodToken(tok)) {
-      copyStr(mucTaf.valid, sizeof(mucTaf.valid), tok);
-    } else if (strcmp(tok, "BECMG") == 0) {
-      becmg++;
-    } else if (strcmp(tok, "TEMPO") == 0) {
-      tempo++;
-    } else if (strncmp(tok, "PROB", 4) == 0) {
-      prob++;
-    } else if (metarWindToken(tok) && mucTaf.wind[0] == '-') {
-      copyStr(mucTaf.wind, sizeof(mucTaf.wind), tok);
-    } else if (strcmp(tok, "CAVOK") == 0 && mucTaf.vis[0] == '-') {
-      copyStr(mucTaf.vis, sizeof(mucTaf.vis), "CAVOK");
-      copyStr(mucTaf.cloud, sizeof(mucTaf.cloud), "CLEAR");
-    } else if (metarVisibilityToken(tok) && mucTaf.vis[0] == '-') {
-      if (strcmp(tok, "9999") == 0) copyStr(mucTaf.vis, sizeof(mucTaf.vis), "10km+");
-      else snprintf(mucTaf.vis, sizeof(mucTaf.vis), "%.1fkm", atoi(tok) / 1000.0);
-    } else if (metarCloudToken(tok) && mucTaf.cloud[0] == '-') {
-      int hFt = (tok[3]-'0') * 10000 + (tok[4]-'0') * 1000 + (tok[5]-'0') * 100;
-      snprintf(mucTaf.cloud, sizeof(mucTaf.cloud), "%.3s %dft", tok, hFt);
-    } else if (metarWxName(tok) && strcmp(mucTaf.wx, "DRY") == 0) {
-      copyStr(mucTaf.wx, sizeof(mucTaf.wx), metarWxName(tok));
-    }
-    tok = strtok(nullptr, " \r\n");
-  }
-
-  if (tempo || becmg || prob)
-    snprintf(mucTaf.change, sizeof(mucTaf.change), "B%d T%d P%d", becmg, tempo, prob);
-}
-
-bool fetchMucTaf() {
-  uint32_t now = millis();
-  if (mucTaf.lastFetch != 0 && now - mucTaf.lastFetch < MUC_TAF_REFRESH_MS)
-    return mucTaf.ok;
-  mucTaf.lastFetch = now;  // throttle failures too; redraws happen often
-
-  WiFiClientSecure client;
-  client.setInsecure();
-  HTTPClient http;
-  http.setTimeout(METAR_HTTP_TIMEOUT_MS);
-  char url[108];
-  snprintf(url, sizeof(url),
-           "https://aviationweather.gov/api/data/taf?ids=%s&format=raw",
-           HOME_AIRPORT_ICAO);
-  if (!http.begin(client, url)) return mucTaf.ok;
-  http.addHeader("User-Agent", "FreisingDeskRadar/1.1.5 MUC TAF page");
-  int code = http.GET();
-  if (code != 200) {
-    http.end();
-    return mucTaf.ok;
-  }
-
-  String payload = http.getString();
-  http.end();
-  payload.trim();
-  if (payload.length() == 0) return mucTaf.ok;
-
-  copyStr(mucTaf.raw, sizeof(mucTaf.raw), payload.c_str());
-  payload = String();
-  parseTafSummary();
-  mucTaf.ok = true;
-  return true;
-}
-
-bool fetchOpenSkyStats() {
-  if (!OPENSKY_ENABLED) return openSky.ok;
-  uint32_t now = millis();
-  if (openSky.lastFetch != 0 && now - openSky.lastFetch < OPENSKY_REFRESH_MS)
-    return openSky.ok;
-  openSky.lastFetch = now;  // avoid retrying rate-limit failures every redraw
-
-  // OpenSky uses a WGS84 bounding box instead of a radius. Convert the desired
-  // MUC-centred page radius into a conservative box; the display labels it as
-  // a regional cross-check rather than exact circular coverage.
-  float dLat = OPENSKY_RANGE_KM / 110.57f;
-  float dLon = OPENSKY_RANGE_KM / (111.32f * cosf(deg2rad(MUC_LAT)));
-  char url[220];
-  snprintf(url, sizeof(url),
-           "https://opensky-network.org/api/states/all?lamin=%.4f&lomin=%.4f&lamax=%.4f&lomax=%.4f&extended=1",
-           (double)(MUC_LAT - dLat), (double)(MUC_LON - dLon),
-           (double)(MUC_LAT + dLat), (double)(MUC_LON + dLon));
-
-  WiFiClientSecure client;
-  client.setInsecure();
-  HTTPClient http;
-  http.setTimeout(OPENSKY_HTTP_TIMEOUT_MS);
-  if (!http.begin(client, url)) return openSky.ok;
-  http.addHeader("User-Agent", "FreisingDeskRadar/1.1.5 OpenSky page");
-  int code = http.GET();
-  if (code != 200) {
-    http.end();
-    return openSky.ok;
-  }
-
-  String payload = http.getString();
-  http.end();
-
-  JsonDocument doc;
-  DeserializationError err = deserializeJson(doc, payload);
-  payload = String();
-  if (err) {
-    Serial.printf("OpenSky JSON error: %s\n", err.c_str());
-    return openSky.ok;
-  }
-
-  OpenSkyStats next;
-  next.apiTime = doc["time"] | 0;
-  for (JsonVariant row : doc["states"].as<JsonArray>()) {
-    JsonArray st = row.as<JsonArray>();
-    if (st.isNull()) continue;
-    next.total++;
-    bool ground = st[8] | false;
-    int source = st[16] | -1;   // 0 ADS-B, 2 MLAT, 3 FLARM when available
-    int cat = st[17] | 0;       // requires extended=1
-    int lastContact = st[4] | 0;
-
-    if (source == 0) next.adsb++;
-    else if (source == 2) next.mlat++;
-    else if (source == 3) next.flarm++;
-    if (ground) next.ground++;
-    if (cat == 8) next.rotor++;
-    if (cat == 5 || cat == 6) next.heavy++;
-    if (next.apiTime && lastContact && (int)next.apiTime - lastContact > 30)
-      next.stale++;
-  }
-  next.ok = true;
-  next.lastFetch = now;
-  openSky = next;
-  return true;
-}
+// rev1.1.23: TAF parsing/fetch and the OpenSky stats fetch were removed
+// together with their pages. The shared METAR token helpers stay — the
+// weather page still uses them.
 
 // ---------- Drawing primitives ----------
 void planeTriangle(int cx, int cy, float trackDeg, int size, uint16_t color) {
@@ -2600,16 +2455,17 @@ void drawActivityCounter() {
   // Counts valid aircraft in the same 60 km regional fetch used by the radar
   // and MUC map. This gives the user a quick "how busy is the sky" number
   // without drawing every contact as a full label on the main scope.
+  // rev1.1.24: label moved ABOVE the number — at y=224 the round panel chord
+  // is so narrow that "100km around you" was clipped to "100km a". The count
+  // is centred on HOME_LAT/LON (your location), not on the airport.
   uint16_t c = activityColor(activityRadiusCount);
-  char n[8];
-  snprintf(n, sizeof(n), "%d", activityRadiusCount);
-  tft.drawFastHLine(78, 195, 84, C_GRIDDIM);
-  centerText(n, 202, 2, c);
-  // rev1.1.23: "around you" — the count is centred on HOME_LAT/LON (your
-  // location), not on the airport; the label now says so.
+  tft.drawFastHLine(78, 186, 84, C_GRIDDIM);
   char label[22];
   snprintf(label, sizeof(label), "%.0fkm around you", (double)ACTIVITY_RADIUS_KM);
-  centerText(label, 224, 1, C_DIM);
+  centerText(label, 192, 1, C_DIM);
+  char n[8];
+  snprintf(n, sizeof(n), "%d", activityRadiusCount);
+  centerText(n, 204, 2, c);
 }
 
 void summaryStatic() {
@@ -2627,8 +2483,10 @@ void summaryDynamic() {
   // Hardware-photo follow-up: the MUC row was removed from this page because
   // it crowded the bottom chord. MUC ARR/DEP now lives only on the airport
   // map where the extra route/status context has room to breathe.
-  centerText("Traffic", 30, 2, C_AMBER);
-  centerText("nearby", 52, 1, C_DIM);
+  // rev1.2.0: header matches the MUC map page grammar — big size-3 amber
+  // word with a small sub-line under it.
+  centerText("TRFC", 14, 3, C_AMBER);
+  centerText("nearby", 42, 1, C_DIM);
 
   int used[4] = {-1, -1, -1, -1};
   int usedN = 0;
@@ -2642,8 +2500,11 @@ void summaryDynamic() {
   drawBriefRow(108, "COOL", C_AMBER, coolIdx, true);
   if (coolIdx >= 0) used[usedN++] = coolIdx;
 
+  // rev1.1.24: withReason=true so the detail line runs through
+  // specialReasonLine() and reports the operator role (POLICE/RESCUE/...)
+  // instead of repeating the bare type code.
   int heliIdx = bestHelicopterNearIdx(used, usedN);
-  drawBriefRow(138, "HELI", C_CYAN, heliIdx, false);
+  drawBriefRow(138, "HELI", C_CYAN, heliIdx, true);
   if (heliIdx >= 0) used[usedN++] = heliIdx;
 
   int emgIdx = bestEmergencyNearIdx();
@@ -2655,148 +2516,63 @@ void summaryDynamic() {
 // ---------- Pages 4+5: NEAREST / COOLEST tracking (shared renderer) ----------
 void trackStatic() {
   tft.fillScreen(C_BG);
-  drawBezelChrome(false);
+  // rev1.1.23: data-card pages get the plain quiet ring (no tick "grid"),
+  // same treatment as the MUC map page.
+  tft.drawCircle(120, 120, 116, C_GRIDDIM);
   pageDots();
 }
 
-void drawProjectedCourse(int cx, int cy, int px, int py, const Aircraft &p,
-                         float scale, int mapR, uint16_t color) {
-  // Tracking-page extrapolation cue. The previous renderer drew a same-length
-  // dashed ray from the last raw ADS-B point, so fast and slow aircraft looked
-  // identical. This line starts from the current dead-reckoned position and
-  // scales the forward cue by about two minutes of travel, capped to keep the
-  // mini-map uncluttered. Small dots mark rough 1 min / 2 min positions when
-  // they fit inside the map.
-  float t = deg2rad(p.trackDeg);
-  float s = sinf(t), c = cosf(t);
-  float kmPerMin = groundSpeedKmh(p) / 60.0f;
-  int aheadPx = (int)(kmPerMin * 2.0f * scale);
-  if (aheadPx < 16) aheadPx = 16;
-  if (aheadPx > 40) aheadPx = 40;
+// Previous bearing-blip position so the 1 s live tick can erase it cleanly.
+int trackBlipPrevX = -1000, trackBlipPrevY = -1000;
+int trackBlipPrevTX = -1000, trackBlipPrevTY = -1000;
 
-  int bx = px - (int)(s * 10);
-  int by = py + (int)(c * 10);
-  if ((bx - cx) * (bx - cx) + (by - cy) * (by - cy) <= mapR * mapR)
-    tft.drawLine(bx, by, px, py, C_GRIDDIM);
-
-  for (int d = 0; d < aheadPx; d += 8) {
-    int xa = px + (int)(s * d),       ya = py - (int)(c * d);
-    int xb = px + (int)(s * (d + 5)), yb = py - (int)(c * (d + 5));
-    if ((xa - cx) * (xa - cx) + (ya - cy) * (ya - cy) > mapR * mapR) break;
-    if ((xb - cx) * (xb - cx) + (yb - cy) * (yb - cy) > mapR * mapR) break;
-    tft.drawLine(xa, ya, xb, yb, color);
+void trackDrawBearingBlip(const Aircraft &n) {
+  // rev1.2.0: small RED rim blip pointing along the bearing from YOUR
+  // position to the tracked aircraft — step outside, face this way, look up.
+  // Same dot-with-outward-tick shape as the blue rim contacts, kept inside
+  // r=104 so clearInnerChrome() and the erase below both cover it fully.
+  if (trackBlipPrevX > -900) {
+    tft.drawLine(trackBlipPrevX, trackBlipPrevY,
+                 trackBlipPrevTX, trackBlipPrevTY, C_BG);
+    tft.fillCircle(trackBlipPrevX, trackBlipPrevY, 3, C_BG);
   }
-
-  for (int minute = 1; minute <= 2; minute++) {
-    int mx = px + (int)(s * kmPerMin * minute * scale);
-    int my = py - (int)(c * kmPerMin * minute * scale);
-    if ((mx - cx) * (mx - cx) + (my - cy) * (my - cy) <= mapR * mapR)
-      tft.fillCircle(mx, my, 1, minute == 1 ? C_GRID : C_GRIDDIM);
-  }
+  float b = deg2rad(n.bearingDeg);
+  int bx = 120 + (int)(sinf(b) * 98);
+  int by = 120 - (int)(cosf(b) * 98);
+  int tx = 120 + (int)(sinf(b) * 104);
+  int ty = 120 - (int)(cosf(b) * 104);
+  tft.drawLine(bx, by, tx, ty, C_RED);
+  tft.fillCircle(bx, by, 2, C_RED);
+  trackBlipPrevX = bx;  trackBlipPrevY = by;
+  trackBlipPrevTX = tx; trackBlipPrevTY = ty;
 }
 
-void trackPageDraw(int idx, const char *headerTag, uint16_t tagColor,
-                   Trail &trail, const char *whyLine) {
-  // Shared renderer for the two tracking pages. rev1.0 layout fix: the old
-  // full-screen rings (r=43/86) were mostly hidden behind the header/footer
-  // text bands, which read as "the grid vanishes at the top and bottom". The
-  // mini-map now lives in its own vertical band (y 76..180) with rings that
-  // fit entirely inside it, and the text gets clean dedicated rows above and
-  // below — nothing overlaps, nothing gets half-erased.
-  clearInnerChrome(false);
-  if (idx < 0) {
-    centerText(headerTag, 96, 1, C_DIM);
-    centerText("no contacts", 116, 2, C_DIM);
-    return;
-  }
-  Aircraft &n = planes[idx];
-  RouteCache *route = cachedRouteFor(n.flight);
+void trackDrawLiveRows(const Aircraft &n) {
+  // The card's dynamic half: big numbers + trend + CPA. Painted on its own
+  // background pads so the 1 s live tick can refresh it WITHOUT clearing the
+  // whole card (a full clear every second flickered badly on the GC9A01).
+  tft.fillRect(28, 120, 184, 64, C_BG);
+  tft.fillRect(48, 186, 144, 22, C_BG);
 
-  // --- header band ---
-  centerText(headerTag, 12, 1, tagColor);
-  centerText(n.flight, 24, 2, C_AMBER);
-  char who[34];
-  if (route && route->airline[0])
-    snprintf(who, sizeof(who), "%.14s  %.14s", typeName(n.typ), route->airline);
-  else
-    fitCopy(who, sizeof(who), typeName(n.typ), 26);
-  // Airline brand colour when the carrier is known (Lufthansa yellow,
-  // Ryanair navy, ...) — the small visual identity the user asked for.
-  centerText(who, 44, 1,
-             (route && route->airline[0]) ? airlineAccentColor(n, route->airline) : C_DIM);
-  if (route && route->codes[0]) centerText(route->codes, 56, 1, C_CYAN);
-  if (whyLine && whyLine[0]) centerText(whyLine, 68, 1, tagColor);
-
-  // --- mini map: home centred, aircraft + path around it ---
-  const int cx = 120, cy = 128, mapR = 52;
-  float range = n.distKm * 1.5f;
-  if (range < TRACK_RANGE_MIN_KM) range = TRACK_RANGE_MIN_KM;
-  float scale = (float)mapR / range;
-
-  tft.drawCircle(cx, cy, mapR / 2, C_GRIDDIM);
-  tft.drawCircle(cx, cy, mapR,     C_GRIDDIM);
-  tft.drawLine(cx - mapR - 6, cy, cx + mapR + 6, cy, C_GRIDDIM);
-  tft.drawLine(cx, cy - mapR - 6, cx, cy + mapR + 6, C_GRIDDIM);
-  tft.setTextSize(1);
-  tft.setTextColor(C_GRID);
-  tft.setCursor(cx + mapR + 6, cy - 10);
-  tft.printf("%.0f", (double)range);
-  tft.setCursor(cx + mapR + 6, cy + 2);
-  tft.print("km");
-
-  // Munich Airport marker whenever it is inside the view: two runway strokes
-  // at the real 08/26 heading, so arrivals visually connect to the airport.
-  int mx = cx + (int)(mucE * scale);
-  int my = cy - (int)(mucN * scale);
-  if ((mx - cx) * (mx - cx) + (my - cy) * (my - cy) <= (mapR - 4) * (mapR - 4)) {
-    int ue = (int)(sinf(deg2rad(RWY_HDG)) * 7.0f);
-    int un = (int)(cosf(deg2rad(RWY_HDG)) * 7.0f);
-    tft.drawLine(mx - ue, my + un - 2, mx + ue, my - un - 2, C_AMBER);
-    tft.drawLine(mx - ue, my + un + 2, mx + ue, my - un + 2, C_AMBER);
-    tft.setTextColor(C_AMBER);
-    tft.setCursor(mx - 8, my + 6);
-    tft.print("MUC");
-  }
-
-  tft.fillCircle(cx, cy, 3, C_WHITE);   // you
-
-  // Flown path: fading polyline from the trail history buffer.
-  int prevX = 0, prevY = 0;
-  bool havePrev = false;
-  for (int i = 0; i < trail.len; i++) {
-    int x = cx + (int)(trail.e[i] * scale);
-    int y = cy - (int)(trail.n[i] * scale);
-    bool inView = (x - cx) * (x - cx) + (y - cy) * (y - cy) <= (mapR + 2) * (mapR + 2);
-    if (!inView) { havePrev = false; continue; }
-    uint16_t c = (i > trail.len - 4) ? C_BRIGHT : (i > trail.len - 10 ? C_SWEEP : C_GRIDDIM);
-    if (havePrev) tft.drawLine(prevX, prevY, x, y, c);
-    tft.fillCircle(x, y, (i == trail.len - 1) ? 2 : 1, c);
-    prevX = x; prevY = y; havePrev = true;
-  }
-
-  // Aircraft + projected course (ahead bright, behind dim), clipped to map.
+  char row[26];
+  snprintf(row, sizeof(row), "ALT %dm", (int)(n.altFt * 0.3048f));
+  centerText(row, 122, 2, C_WHITE);
+  snprintf(row, sizeof(row), "SPD %dkm/h", (int)(n.gsKt * 1.852f));
+  centerText(row, 144, 2, C_WHITE);
+  // Live distance from the dead-reckoned position, so DST and CPA both move
+  // between fetches instead of jumping every 8 s.
   float liveE, liveN;
   liveAircraftOffsetKm(n, &liveE, &liveN);
-  int px = cx + (int)(liveE * scale);
-  int py = cy - (int)(liveN * scale);
-  if ((px - cx) * (px - cx) + (py - cy) * (py - cy) <= mapR * mapR) {
-    drawProjectedCourse(cx, cy, px, py, n, scale, mapR, C_GRID);
-    trafficSymbol(n, px, py, 7, trafficColor(n, false), false);
-  } else {
-    // Aircraft outside the mini-map: edge-clamped blue square (global rule).
-    float b = deg2rad(n.bearingDeg);
-    int ex = cx + (int)(sinf(b) * (mapR + 4));
-    int ey = cy - (int)(cosf(b) * (mapR + 4));
-    tft.fillRect(ex - 2, ey - 2, 5, 5, C_BLUE_DIM);
-  }
+  float liveDist = sqrtf(liveE * liveE + liveN * liveN);
+  snprintf(row, sizeof(row), "DST %.1fkm %s", (double)liveDist, compass8(n.bearingDeg));
+  centerText(row, 166, 2, C_GREEN);
 
-  // --- footer band: bearing / altitude / speed, then closest approach ---
-  char live[40];
-  snprintf(live, sizeof(live), "BRG %.0f%s  %dm  %dkm/h",
-           (double)n.bearingDeg, compass8(n.bearingDeg),
-           (int)(n.altFt * 0.3048f), (int)(n.gsKt * 1.852f));
-  centerText(live, 188, 1, C_WHITE);
+  const char *trend = n.vrFpm > 300 ? "climbing" : (n.vrFpm < -300 ? "descending" : "level");
+  snprintf(row, sizeof(row), "%s %+dfpm", trend, n.vrFpm);
+  centerText(row, 188, 1, C_DIM);
 
+  // Closest point of approach to YOU — answers the desk-radar question:
+  // "will it pass over me, and when?"
   float spdKms = n.gsKt * 1.852f / 3600.0f;
   float vx = sinf(deg2rad(n.trackDeg)) * spdKms;
   float vy = cosf(deg2rad(n.trackDeg)) * spdKms;
@@ -2807,25 +2583,79 @@ void trackPageDraw(int idx, const char *headerTag, uint16_t tagColor,
     if (tSec > 0 && tSec < 3600) {
       float ce = liveE + vx * tSec, cn = liveN + vy * tSec;
       float cd = sqrtf(ce * ce + cn * cn);
-      // CPA = closest point of approach to YOU (km), time as minutes+seconds.
       snprintf(cpa, sizeof(cpa), "CPA %.1fkm in %dm%02ds",
                (double)cd, (int)tSec / 60, (int)tSec % 60);
     } else {
-      snprintf(cpa, sizeof(cpa), "away now %.1fkm", (double)n.distKm);
+      snprintf(cpa, sizeof(cpa), "moving away");
     }
   } else {
-    snprintf(cpa, sizeof(cpa), "now %.1fkm from you", (double)n.distKm);
+    snprintf(cpa, sizeof(cpa), "stationary");
   }
-  centerText(cpa, 202, 1, C_CYAN);
+  centerText(cpa, 200, 1, C_CYAN);
+}
+
+void trackLiveTick() {
+  // rev1.2.0: 1 s partial refresh for the tracking pages — the CPA countdown
+  // and DST now tick live between fetches (user: "doesn't feel live").
+  int idx = (page == PAGE_NEAREST) ? nearestAirborne() : coolestIdx();
+  if (idx < 0) return;
+  trackDrawLiveRows(planes[idx]);
+  trackDrawBearingBlip(planes[idx]);
+}
+
+void trackPageDraw(int idx, const char *headerTag, uint16_t tagColor,
+                   const char *whyLine) {
+  // rev1.1.23: pure DATA CARD, per user request ("remove the tracking and
+  // grid altogether, just give me data in nice format, centered and as big
+  // as possible"). No mini-map, no rings, no trail — one aircraft, an
+  // identity block on top and big centred numbers below.
+  clearInnerChrome(false);
+  if (idx < 0) {
+    centerText(headerTag, 96, 1, C_DIM);
+    centerText("no contacts", 116, 2, C_DIM);
+    return;
+  }
+  Aircraft &n = planes[idx];
+  RouteCache *route = cachedRouteFor(n.flight);
+
+  // --- identity block ---
+  // rev1.1.24: whole card pushed down and spread out ("bring down the top
+  // label so it fills the screen better"), and the route now also shows the
+  // FULL city names from adsbdb under the code pair.
+  centerText(headerTag, 22, 1, tagColor);
+  // Callsign as the hero: size 3 when it fits the top chord, size 2 as a
+  // fallback for long callsigns.
+  centerText(n.flight, 36, (int)strlen(n.flight) <= 7 ? 3 : 2, C_AMBER);
+  char who[34];
+  if (route && route->airline[0])
+    snprintf(who, sizeof(who), "%.14s  %.14s", typeName(n.typ), route->airline);
+  else
+    fitCopy(who, sizeof(who), typeName(n.typ), 26);
+  // Airline brand colour when the carrier is known (Lufthansa yellow,
+  // Ryanair navy, ...).
+  centerText(who, 64, 1,
+             (route && route->airline[0]) ? airlineAccentColor(n, route->airline) : C_DIM);
+  // rev1.2.0: nothing renders as an EMPTY row any more — unknown route shows
+  // explicit placeholders instead of a hole in the card.
+  if (route && route->codes[0])  centerText(route->codes, 76, 2, C_CYAN);
+  else                           centerText("-- > --", 76, 2, C_GRIDDIM);
+  if (route && route->cities[0]) centerText(route->cities, 94, 1, C_DIM);
+  else                           centerText("route n/a", 94, 1, C_GRIDDIM);
+  if (whyLine && whyLine[0]) centerText(whyLine, 106, 1, tagColor);
+
+  tft.drawFastHLine(72, 116, 96, C_GRIDDIM);
+
+  trackDrawLiveRows(n);
+  trackDrawBearingBlip(n);
 }
 
 void trackDynamic() {
-  trackPageDraw(nearestAirborne(), "NEAREST", C_DIM, trailNear, NULL);
+  trackPageDraw(nearestAirborne(), "NEAREST", C_DIM, NULL);
 }
 
 void coolestStatic() {
   tft.fillScreen(C_BG);
-  drawBezelChrome(false);
+  tft.drawCircle(120, 120, 116, C_GRIDDIM);   // plain ring, no tick grid
   pageDots();
 }
 
@@ -2857,7 +2687,7 @@ void coolestDynamic() {
   // in the header slot (colour signals urgency: red = emergency/very rare).
   int ci = coolestIdx();
   if (ci < 0) {
-    trackPageDraw(-1, "COOLEST", C_AMBER, trailCool, NULL);
+    trackPageDraw(-1, "COOLEST", C_AMBER, NULL);
     return;
   }
   Aircraft &p = planes[ci];
@@ -2867,7 +2697,7 @@ void coolestDynamic() {
 
   char why[34];
   buildCoolWhyLine(p, label, why, sizeof(why));
-  trackPageDraw(ci, "COOLEST", tagColor, trailCool, why);
+  trackPageDraw(ci, "COOLEST", tagColor, why);
 }
 
 // ---------- Page 2: MUC AIRPORT ----------
@@ -2990,6 +2820,11 @@ float mucTrafficScore(const Aircraft &p, bool arrival) {
     if (likelyArrival(p)) score -= 16.0f;    // obvious final/inbound
     return score;
   }
+
+  // rev1.1.24: PARKED aircraft can no longer win the "next departure" slot.
+  // Device photos kept showing motionless GA machines (ELEKT15 etc.) labelled
+  // "DEP GND" for minutes. Ground candidates now need actual taxi movement.
+  if (p.ground && p.gsKt < 5) return 99999.0f;
 
   float score = d * 2.2f + angleDiffDeg(p.trackDeg, fromMuc) * 0.18f;
   score += (p.altFt > 12000 ? p.altFt - 12000 : 0) / 1200.0f;
@@ -3114,45 +2949,47 @@ void drawMucMapNextLabel(int idx, bool arrival, int avoidX, int avoidY,
       snprintf(via, sizeof(via), "to %s", code);
   }
 
-  // rev1.1.23: ONE-line label — callsign, status and fr/to sit side by side
-  // instead of stacked, per user feedback ("saves space"). Widths are
-  // measured so the whole line can be centred on the aircraft and clamped
-  // to the panel.
+  // rev1.2.0 layout (final): TWO tight lines —
+  //   line 1: CALLSIGN + fr/to route hint
+  //   line 2: ARR/DEP + ETA/distance
+  // (rev1.1.23 had everything on one line; on the panel it grew too wide and
+  // crossed the runways.)
   int w1 = (int)strlen(p.flight) * 6;
   int w2 = (int)strlen(status) * 6;
   int w3 = via[0] ? (int)strlen(via) * 6 : 0;
-  int total = w1 + 6 + w2 + (w3 ? 6 + w3 : 0);
+  int line1W = w1 + (w3 ? 6 + w3 : 0);
+  int total = line1W > w2 ? line1W : w2;
 
   int lx = x - total / 2;
-  if (lx < 8) lx = 8;
-  if (lx + total > 232) lx = 232 - total;
-  int ly = y - 16;
+  if (lx < 10) lx = 10;
+  if (lx + total > 230) lx = 230 - total;
+  int ly = y - 26;
   if (ly < 62) ly = y + 10;
-  if (ly > 204) ly = 204;
+  if (ly > 192) ly = 192;
 
   // The two labels (next ARR + next DEP) must never overlap each other:
-  // vertical dodge when the single-line boxes would intersect.
+  // vertical dodge when the two-line boxes would intersect.
   if (avoidX > -900 &&
-      lx < avoidX + 140 && lx + total > avoidX &&
-      ly < avoidY + 12 && ly + 12 > avoidY) {
-    if (avoidY + 14 <= 204) ly = avoidY + 14;
-    else                    ly = avoidY - 14;
+      lx < avoidX + 110 && lx + total > avoidX &&
+      ly < avoidY + 22 && ly + 22 > avoidY) {
+    if (avoidY + 24 <= 192) ly = avoidY + 24;
+    else                    ly = avoidY - 24;
   }
 
-  int anchorY = (ly < y) ? ly + 9 : ly - 1;
+  int anchorY = (ly < y) ? ly + 19 : ly - 1;
   tft.drawLine(x, y, lx + total / 2, anchorY, C_DIM);
   tft.setTextSize(1);
   tft.setTextColor(C_WHITE);
   tft.setCursor(lx, ly);
   tft.print(p.flight);
-  tft.setTextColor(color);
-  tft.setCursor(lx + w1 + 6, ly);
-  tft.print(status);
   if (w3) {
     tft.setTextColor(C_DIM);
-    tft.setCursor(lx + w1 + 6 + w2 + 6, ly);
+    tft.setCursor(lx + w1 + 6, ly);
     tft.print(via);
   }
+  tft.setTextColor(color);
+  tft.setCursor(lx, ly + 10);
+  tft.print(status);
   if (outX) *outX = lx;
   if (outY) *outY = ly;
 }
@@ -3246,8 +3083,8 @@ void airportDynamic() {
       if (!onCounters && !onSouthLabel) {
         int tx2 = 120 + (int)(ux * 105);
         int ty2 = 120 - (int)(uy * 105);
-        tft.drawLine(cx2, cy2, tx2, ty2, C_EDGE_BLUE);
-        tft.fillCircle(cx2, cy2, 2, C_EDGE_BLUE);
+        tft.drawLine(cx2, cy2, tx2, ty2, C_EDGE_BLUE_MAP);
+        tft.fillCircle(cx2, cy2, 2, C_EDGE_BLUE_MAP);
       }
     } else if (onRwy) {
       // Aircraft actually on the runway: yellow marker, sized by wake class
@@ -3447,136 +3284,9 @@ void mucWeatherDynamic() {
   printFit(58, 210, raw2, 1, C_DIM, 124);
 }
 
-// ---------- Page 7: MUC TAF ----------
-void sourceRow(int y, const char *label, const char *value, uint16_t valueColor) {
-  // Generic data row for the three appended source pages. It gives labels and
-  // values fixed pixel boxes; that keeps runway dimensions, frequencies, and
-  // forecast groups from crashing into each other on the circular display.
-  //
-  // The boxes are also chord-aware: rows near the top/bottom get narrower so
-  // text never runs under the physical round lens mask.
-  int boxW = circleTextBoxW(y, 1);
-  int x0 = 120 - boxW / 2;
-  int labelW = boxW > 132 ? 50 : 42;
-  int gap = 6;
-  int valueW = boxW - labelW - gap;
-  if (valueW < 36) valueW = 36;
-  printFit(x0, y, label, 1, C_GRID, labelW);
-  printFit(x0 + labelW + gap, y, value, 1, valueColor, valueW);
-}
-
-void mucTafStatic() {
-  tft.fillScreen(C_BG);
-  pageDots();
-}
-
-void mucTafDynamic() {
-  tft.fillScreen(C_BG);
-  centerText("MUC TAF", 18, 2, C_AMBER);
-  centerText("forecast", 40, 1, C_DIM);
-  tft.drawFastHLine(76, 54, 88, C_GRIDDIM);
-
-  if (!fetchMucTaf()) {
-    centerText("no TAF yet", 104, 2, C_DIM);
-    centerText("aviationweather retry", 128, 1, C_GRID);
-    return;
-  }
-
-  sourceRow(66,  "VALID", mucTaf.valid,  C_WHITE);
-  sourceRow(82,  "WIND",  mucTaf.wind,   C_WHITE);
-  sourceRow(98,  "VIS",   mucTaf.vis,    C_WHITE);
-  sourceRow(114, "CLOUD", mucTaf.cloud,  C_WHITE);
-  sourceRow(130, "WX",    mucTaf.wx,
-            strcmp(mucTaf.wx, "DRY") == 0 ? C_WHITE : C_AMBER);
-  sourceRow(146, "CHG",   mucTaf.change, strcmp(mucTaf.change, "NONE") == 0 ? C_DIM : C_CYAN);
-
-  // Raw TAF carries the full forecast text. It is clipped into three safe
-  // rows rather than wrapped dynamically, because fixed rows are much more
-  // reliable near the lower chord of the round panel.
-  char r1[27], r2[27], r3[27];
-  fitCopy(r1, sizeof(r1), mucTaf.raw, 24);
-  fitCopy(r2, sizeof(r2), mucTaf.raw + strlen(r1), 24);
-  fitCopy(r3, sizeof(r3), mucTaf.raw + strlen(r1) + strlen(r2), 24);
-  centerText(r1, 174, 1, C_DIM);
-  centerText(r2, 186, 1, C_DIM);
-  centerText(r3, 198, 1, C_DIM);
-}
-
-// ---------- Page 8: MUC FIELD ----------
-void mucInfoStatic() {
-  tft.fillScreen(C_BG);
-  pageDots();
-}
-
-void mucInfoDynamic() {
-  // No network call here: the page is a baked-in OurAirports reference card.
-  // Static facts belong in firmware because downloading multi-megabyte CSVs
-  // on an ESP32 just to learn "two 4000 m concrete runways" would be wasteful.
-  tft.fillScreen(C_BG);
-  centerText("MUC FIELD", 18, 2, C_AMBER);
-  centerText("OurAirports facts", 40, 1, C_DIM);
-  tft.drawFastHLine(72, 54, 96, C_GRIDDIM);
-
-  sourceRow(62,  "ID",    "EDDM / MUC",       C_WHITE);
-  sourceRow(78,  "TYPE",  "large airport",    C_WHITE);
-  sourceRow(94,  "ELEV",  "1487ft / 453m",    C_WHITE);
-
-  tft.drawFastHLine(54, 112, 132, C_GRIDDIM);
-  sourceRow(124, "08L26R", "4000x60m concrete", C_CYAN);
-  sourceRow(140, "08R26L", "4000x60m concrete", C_CYAN);
-
-  tft.drawFastHLine(54, 158, 132, C_GRIDDIM);
-  sourceRow(166, "ATIS",  "123.130 MHz",      C_AMBER);
-  sourceRow(180, "TWR N", "118.705 MHz",      C_GREEN);
-  sourceRow(194, "TWR S", "120.505 MHz",      C_GREEN);
-}
-
-// ---------- Page 9: OPEN SKY ----------
-void openSkyStatic() {
-  tft.fillScreen(C_BG);
-  pageDots();
-}
-
-void openSkyDynamic() {
-  tft.fillScreen(C_BG);
-  centerText("OPEN SKY", 18, 2, C_AMBER);
-  centerText("MUC regional check", 40, 1, C_DIM);
-  tft.drawFastHLine(76, 54, 88, C_GRIDDIM);
-
-  if (!OPENSKY_ENABLED) {
-    centerText("disabled", 106, 2, C_DIM);
-    centerText("set OPENSKY_ENABLED 1", 130, 1, C_GRID);
-    return;
-  }
-  if (!fetchOpenSkyStats()) {
-    centerText("no OpenSky data", 104, 2, C_DIM);
-    centerText("rate limit or offline", 128, 1, C_GRID);
-    return;
-  }
-
-  char n[12];
-  snprintf(n, sizeof(n), "%d", openSky.total);
-  centerText(n, 62, 3, openSky.total > 45 ? C_RED : (openSky.total > 22 ? C_AMBER : C_GREEN));
-  centerText("states in bbox", 90, 1, C_DIM);
-
-  char value[18];
-  snprintf(value, sizeof(value), "%d ADSB / %d MLAT", openSky.adsb, openSky.mlat);
-  sourceRow(112, "SRC", value, C_WHITE);
-  snprintf(value, sizeof(value), "%d FLARM", openSky.flarm);
-  sourceRow(128, "FLRM", value, openSky.flarm ? C_CYAN : C_DIM);
-  snprintf(value, sizeof(value), "%d heavy", openSky.heavy);
-  sourceRow(144, "HVY", value, openSky.heavy ? C_AMBER : C_DIM);
-  snprintf(value, sizeof(value), "%d rotor", openSky.rotor);
-  sourceRow(160, "HELI", value, openSky.rotor ? C_PURPLE : C_DIM);
-  snprintf(value, sizeof(value), "%d ground", openSky.ground);
-  sourceRow(176, "GND", value, openSky.ground ? C_GREEN : C_DIM);
-  snprintf(value, sizeof(value), "%d stale", openSky.stale);
-  sourceRow(192, "AGE", value, openSky.stale ? C_AMBER : C_DIM);
-
-  char footer[26];
-  snprintf(footer, sizeof(footer), "%.0fkm bbox backup", (double)OPENSKY_RANGE_KM);
-  centerText(footer, 216, 1, C_DIM);
-}
+// rev1.1.23: the MUC TAF, MUC FIELD and OPEN SKY pages (and their shared
+// sourceRow renderer) were removed on user request — the carousel is back
+// to six live pages.
 
 // ---------- Page management ----------
 bool skipPage(uint8_t p) {
@@ -3594,9 +3304,6 @@ void drawPageFull() {
     case PAGE_COOLEST:  coolestStatic();    coolestDynamic();    break;
     case PAGE_MUC_MAP:  airportStatic();    airportDynamic();    break;
     case PAGE_MUC_WX:   mucWeatherStatic(); mucWeatherDynamic(); break;
-    case PAGE_MUC_TAF:  mucTafStatic();     mucTafDynamic();     break;
-    case PAGE_MUC_INFO: mucInfoStatic();    mucInfoDynamic();    break;
-    case PAGE_OPENSKY:  openSkyStatic();    openSkyDynamic();    break;
   }
 }
 
@@ -3608,9 +3315,6 @@ void drawPageUpdate() {
     case PAGE_COOLEST:  coolestDynamic();    break;
     case PAGE_MUC_MAP:  airportDynamic();    break;
     case PAGE_MUC_WX:   mucWeatherDynamic(); break;
-    case PAGE_MUC_TAF:  mucTafDynamic();     break;
-    case PAGE_MUC_INFO: mucInfoDynamic();    break;
-    case PAGE_OPENSKY:  openSkyDynamic();    break;
   }
 }
 
@@ -3621,10 +3325,18 @@ bool pageButtonDownNow() {
   return digitalRead(PAGE_BUTTON_PIN) == LOW;
 }
 
+bool buttonWantsAttention() {
+  // rev1.1.24: yield not only to a physically held button but also to an
+  // already-latched (completed) press waiting in btnEvent. Previously a press
+  // that landed DURING one route fetch didn't stop the NEXT route fetch from
+  // starting, so the page turn could lag several extra seconds.
+  return pageButtonDownNow() || btnEvent != 0;
+}
+
 void prefetchRoutes() {
   // Route lookups are the only "optional" network calls; they always yield
   // to a pending button press so the UI never feels stuck behind HTTP.
-  if (pageButtonDownNow()) return;
+  if (buttonWantsAttention()) return;
   int na = nearestAirborne();
   if ((page == PAGE_RADAR || page == PAGE_NEAREST || page == PAGE_SUMMARY) && na >= 0)
     fetchRoute(planes[na].flight, ROUTE_SLOT_NEAREST);
@@ -3632,20 +3344,20 @@ void prefetchRoutes() {
     // The airport map owns next arrival/departure rows; fetching those routes
     // only on that page avoids blocking the button for data the brief no
     // longer displays.
-    if (pageButtonDownNow()) return;
+    if (buttonWantsAttention()) return;
     int a = nextArrivalIdx();
     if (a >= 0) fetchRoute(planes[a].flight, ROUTE_SLOT_MUC_BASE + 0);
-    if (pageButtonDownNow()) return;
+    if (buttonWantsAttention()) return;
     int d = nextDepartureIdx();
     if (d >= 0) fetchRoute(planes[d].flight, ROUTE_SLOT_MUC_BASE + 1);
     // rev1.1.21: the map header shows temp+wind, so this page keeps the
     // METAR cache warm too (no-op while the cache is fresh). Previously it
     // only filled after visiting the weather page.
-    if (pageButtonDownNow()) return;
+    if (buttonWantsAttention()) return;
     fetchMucWeather();
   }
   if (page == PAGE_COOLEST || page == PAGE_SUMMARY) {
-    if (pageButtonDownNow()) return;
+    if (buttonWantsAttention()) return;
     int ci = coolestIdx();
     if (ci >= 0) fetchRoute(planes[ci].flight, ROUTE_SLOT_COOLEST);
   }
@@ -3715,7 +3427,7 @@ void handlePageButton(uint32_t now) {
 void setup() {
   Serial.begin(115200);
   delay(300);
-  Serial.println("Plane Radar rev1.1.22 booting...");
+  Serial.println("Plane Radar rev1.2.0 booting...");
   pinMode(PAGE_BUTTON_PIN, INPUT_PULLUP);
   if (PAGE_BUTTON_ENABLED)
     attachInterrupt(digitalPinToInterrupt(PAGE_BUTTON_PIN), pageButtonIsr, CHANGE);
@@ -3747,7 +3459,12 @@ void loop() {
   uint32_t now = millis();
   handlePageButton(now);
 
-  bool fetchDue = (now - lastFetchAttempt >= FETCH_INTERVAL_MS || lastFetchAttempt == 0);
+  // rev1.1.24: after a failed fetch (HTTP -11 read timeout etc.) retry after
+  // 3 s instead of waiting out the full interval — the "retry ..." pill was
+  // sitting on screen for whole cycles even when the API had already
+  // recovered. Successful fetches keep the polite 8 s cadence.
+  uint32_t fetchInterval = failCount ? 3000UL : FETCH_INTERVAL_MS;
+  bool fetchDue = (now - lastFetchAttempt >= fetchInterval || lastFetchAttempt == 0);
   bool buttonBusy = pageButtonDownNow() || btnEvent != 0;
   if (fetchDue && !buttonBusy) {
     bool first = !haveAircraftData;
@@ -3770,13 +3487,17 @@ void loop() {
       // one-shot per aircraft, so the same jet cannot hold the screen hostage.
       int alertIdx = coolestIdx();
       const char *alertLabel;
-      if (!manualPageHold && alertIdx >= 0 && page != PAGE_COOLEST &&
+      // rev1.2.0: emergencies jump to the TRAFFIC page (its EMG row carries
+      // squawk + position context); rare airframes still go to COOLEST.
+      uint8_t alertPage = (alertIdx >= 0 && isEmergencySquawk(planes[alertIdx]))
+                              ? PAGE_SUMMARY : PAGE_COOLEST;
+      if (!manualPageHold && alertIdx >= 0 && page != alertPage &&
           coolScore(planes[alertIdx], &alertLabel) >= ALERT_SCORE &&
           strcmp(planes[alertIdx].flight, lastAlertCs) != 0) {
         copyStr(lastAlertCs, sizeof(lastAlertCs), planes[alertIdx].flight);
-        Serial.printf("ALERT: %s -> coolest page (%s)\n",
-                      planes[alertIdx].flight, alertLabel);
-        page = PAGE_COOLEST;
+        Serial.printf("ALERT: %s -> page %d (%s)\n",
+                      planes[alertIdx].flight, alertPage, alertLabel);
+        page = alertPage;
         lastPageSwitch = now;
         drawPageFull();
       } else if (first) {
@@ -3814,6 +3535,12 @@ void loop() {
   if (page == PAGE_MUC_MAP && now - lastLiveStep >= AIRPORT_STEP_MS) {
     lastLiveStep = now;
     airportDynamic();
+  }
+
+  if ((page == PAGE_NEAREST || page == PAGE_COOLEST) &&
+      now - lastLiveStep >= TRACK_STEP_MS) {
+    lastLiveStep = now;
+    trackLiveTick();   // partial redraw: numbers + rim blip only, no flicker
   }
 
   if (AUTO_SCROLL_ENABLED && haveAircraftData && !manualPageHold &&
