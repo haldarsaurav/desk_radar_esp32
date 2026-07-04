@@ -12,12 +12,18 @@
 #define WIFI_PASSWORD   "YOUR_WIFI_PASSWORD"
 
 // [REQUIRED] Device location (centre of the radar scope)
-#define HOME_LAT        48.39576799207869
-#define HOME_LON        11.773933419079786
+// !!! CHANGE THIS to your own location (decimal degrees). The values below
+// are Munich Airport itself, as a neutral placeholder — with these the radar
+// is centred on the airfield, not on your desk.
+#define HOME_LAT        48.3538
+#define HOME_LON        11.7861
 
 // [REQUIRED] Home airport (route matching, METAR request, page labels)
 //#define HOME_AIRPORT_IATA "MUC"
 //#define HOME_AIRPORT_ICAO "EDDM"
+
+// Name shown on the boot splash, under "PLANE RADAR". Make it yours.
+//#define OWNER_NAME "S A U R A V"
 
 // ---- Optional tuning -----------------------------------------------------
 

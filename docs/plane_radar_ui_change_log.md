@@ -950,8 +950,8 @@ Driven by the next device polish request.
 Global:
 
 - Updated the desk/home coordinates in both `config.example.h` and local `config.h`:
-  - latitude `48.39576799207869`
-  - longitude `11.773933419079786`
+  - latitude `<redacted - see local config.h>`
+  - longitude `<redacted - see local config.h>`
 - Changed `RADAR_RANGE_KM` to `20.0` in both `config.example.h` and local `config.h` for a less cluttered home radar.
 - Added named page IDs (`PAGE_RADAR`, `PAGE_SPECIAL`, `PAGE_NEAREST`, etc.) so the page carousel is easier to maintain.
 - Changed the radar/grid palette from blue to a subtle classic radar green.
