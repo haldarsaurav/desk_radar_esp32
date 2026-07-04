@@ -1,0 +1,27 @@
+# Kept LOCAL only - not published to GitHub.
+# The repo intentionally holds just the README (real build photos added later).
+# Everything below still lives on this computer; it is only untracked from git.
+
+# Firmware and source
+/firmware/
+
+# Editor / tooling
+/.vscode/
+/github/
+/AGENTS.md
+
+# Working notes / context
+/PROJECT_CONTEXT.md
+
+# Generated documentation (manuals, datasheets)
+/docs/*.html
+/docs/*.pdf
+/docs/*.md
+
+# Debug photos and clips from the build process
+/docs/debug_pics/
+/docs/renders/
+/docs/hardware/
+
+# Personal config (Wi-Fi credentials etc.)
+config.h
