@@ -44,14 +44,23 @@ My favourite part is that it does not treat every aircraft equally. A regular sh
 
 The radar has six main pages. They rotate automatically, so the device feels alive even when I am not touching it.
 
-| Page | What you see |
-|---|---|
-| **Home Radar** 🟢 | A north-up radar scope centred around my Freising area. The outer range cycles through **20 km**, **40 km**, and **60 km**, so I can see both close overhead traffic and the wider sky around me. |
-| **MUC Map** 🛫 | A Munich Airport view with the real runway direction in mind. It shows arrivals, departures, ground traffic, wind, temperature, and the next interesting MUC movements. |
-| **Traffic Brief** 📋 | A compact "what matters right now" page: nearest aircraft, coolest aircraft, nearest helicopter, emergency traffic, and how busy the local sky is. |
-| **Nearest Aircraft** 📍 | A full tracking card for the closest airborne aircraft: callsign, aircraft type, airline/route when known, speed, altitude, distance, climb/descent, and closest approach. |
-| **Coolest Aircraft** ⭐ | Similar to the nearest page, but locked onto the most interesting aircraft in range. It also gives a short reason for why it was picked. |
-| **MUC Weather** 🌦️ | Munich Airport weather decoded from METAR: wind, visibility, clouds, temperature, pressure, weather state, runway estimate, and flight condition. |
+**🟢 Home Radar**  
+A north-up radar scope centred around my Freising area. The outer range cycles through **20 km**, **40 km**, and **60 km**, so I can see both close overhead traffic and the wider sky around me.
+
+**🛫 MUC Map**  
+A Munich Airport view with the real runway direction in mind. It shows arrivals, departures, ground traffic, wind, temperature, and the next interesting MUC movements.
+
+**📋 Traffic Brief**  
+A compact "what matters right now" page: nearest aircraft, coolest aircraft, nearest helicopter, emergency traffic, and how busy the local sky is.
+
+**📍 Nearest Aircraft**  
+A full tracking card for the closest airborne aircraft: callsign, aircraft type, airline/route when known, speed, altitude, distance, climb/descent, and closest approach.
+
+**⭐ Coolest Aircraft**  
+Similar to the nearest page, but locked onto the most interesting aircraft in range. It also gives a short reason for why it was picked.
+
+**🌦️ MUC Weather**  
+Munich Airport weather decoded from METAR: wind, visibility, clouds, temperature, pressure, weather state, runway estimate, and flight condition.
 
 ---
 
@@ -166,20 +175,41 @@ The flight condition is colour-coded, so it is easy to read at a glance: green i
 
 The screen has its own little grammar. Once you know the colours, the pages become very fast to read.
 
-| Symbol / colour | Meaning |
-|---|---|
-| **Triangle** | Normal fixed-wing aircraft, pointing in the direction it is moving. |
-| **Star** ⭐ | A notable or cool aircraft. Usually something rare, special, or worth looking up from the desk for. |
-| **Rotor-style mark** 🚁 | Helicopter. These get separated because they behave differently and are fun to catch locally. |
-| **Red "!" pill** | Emergency squawk. This gets priority over everything else. |
-| **Yellow runway block** | Aircraft on a runway at Munich. A bigger block means a heavier aircraft. |
-| **Blue rim dot** | Aircraft near the edge of the airport map view. It is nearby enough to matter, but outside the main drawn area. |
-| **Red number / marker** | Departure-style traffic. On the MUC page this means aircraft moving away from Munich. |
-| **Green number / marker** | Arrival-style traffic. On the MUC page this means aircraft moving toward Munich. |
-| **Purple dot / number** | Ground traffic at Munich. Taxiing, parked, or slow airport movement. |
-| **White number** | Total aircraft count. |
-| **Amber text** | The main highlighted thing on the page, like the page title or selected callsign. |
-| **Cyan text** | Useful supporting information, like routes, closest approach, or weather/runway details. |
+**🔺 Triangle**  
+Normal fixed-wing aircraft, pointing in the direction it is moving.
+
+**⭐ Star**  
+A notable or cool aircraft. Usually something rare, special, or worth looking up from the desk for.
+
+**🚁 Rotor-style mark**  
+Helicopter. These get separated because they behave differently and are fun to catch locally.
+
+**🚨 Red "!" pill**  
+Emergency squawk. This gets priority over everything else.
+
+**🟨 Yellow runway block**  
+Aircraft on a runway at Munich. A bigger block means a heavier aircraft.
+
+**🔵 Blue rim dot**  
+Aircraft near the edge of the airport map view. It is nearby enough to matter, but outside the main drawn area.
+
+**🔴 Red number / marker**  
+Departure-style traffic. On the MUC page this means aircraft moving away from Munich.
+
+**🟢 Green number / marker**  
+Arrival-style traffic. On the MUC page this means aircraft moving toward Munich.
+
+**🟣 Purple dot / number**  
+Ground traffic at Munich. Taxiing, parked, or slow airport movement.
+
+**⚪ White number**  
+Total aircraft count.
+
+**🟠 Amber text**  
+The main highlighted thing on the page, like the page title or selected callsign.
+
+**🔷 Cyan text**  
+Useful supporting information, like routes, closest approach, or weather/runway details.
 
 The idea is that I should not have to read every label. Red, green, purple, yellow, star, rotor, and emergency all mean something immediately.
 
@@ -242,16 +272,29 @@ Together, those two views make the device feel useful: local enough for my windo
 
 The distance logic is one of the things that makes the display actually useful on a tiny screen.
 
-| Distance / range | What it means on the device |
-|---|---|
-| **20 km Home Radar view** | Close local traffic. This is the "what is near me right now?" view. |
-| **40 km Home Radar view** | Middle-distance traffic. Good for seeing nearby Munich-area movement without zooming too far out. |
-| **60 km Home Radar view** | Wider Freising + Munich picture. Useful for seeing larger flow toward and away from MUC. |
-| **20 km MUC Map view** | The main Munich Airport map area. This keeps the runway and airport traffic readable. |
-| **20-40 km from MUC** | These aircraft show as blue rim dots on the MUC page, so they are still visible without cluttering the runway map. |
-| **Up to about 60 km around MUC** | Used for spotting likely Munich arrivals and departures before they are right on top of the airport. |
-| **Around 100 km activity picture** | Used by the traffic brief to judge how busy the wider sky is. |
-| **About 4 km and low altitude** | This can count as a low overhead pass, which is exactly the kind of thing I want the radar to shout about. |
+**20 km Home Radar view**  
+Close local traffic. This is the "what is near me right now?" view.
+
+**40 km Home Radar view**  
+Middle-distance traffic. Good for seeing nearby Munich-area movement without zooming too far out.
+
+**60 km Home Radar view**  
+Wider Freising + Munich picture. Useful for seeing larger flow toward and away from MUC.
+
+**20 km MUC Map view**  
+The main Munich Airport map area. This keeps the runway and airport traffic readable.
+
+**20-40 km from MUC**  
+These aircraft show as blue rim dots on the MUC page, so they are still visible without cluttering the runway map.
+
+**Up to about 60 km around MUC**  
+Used for spotting likely Munich arrivals and departures before they are right on top of the airport.
+
+**Around 100 km activity picture**  
+Used by the traffic brief to judge how busy the wider sky is.
+
+**About 4 km and low altitude**  
+This can count as a low overhead pass, which is exactly the kind of thing I want the radar to shout about.
 
 ---
 
