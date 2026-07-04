@@ -1,87 +1,150 @@
 # MUC Desk Radar
 
-**A standalone desk instrument that watches the real sky around you and around Munich Airport - on a 1.28" round display.**
+This is my tiny live aircraft radar for the desk.
 
-No phone app. No companion server. An ESP32-C3 joins your Wi-Fi, pulls live aircraft and weather data straight from free public feeds, and paints it onto a glass-cockpit round screen: live traffic, airport operations, per-aircraft tracking cards, rare-aircraft alerts, and decoded METAR weather.
+I built it because I live around Freising, close enough to Munich Airport that the sky is never really empty. Sometimes there is a normal Lufthansa arrival, sometimes a cargo jet, sometimes a helicopter, sometimes something much more interesting. I wanted a little object on my table that could quietly answer the question:
 
-> **Note on the code:** this repository is a **showcase**. The firmware source is not published here. This README gives a clear picture of *what the device does*, *how it's built*, and *what to expect* - without the source itself. Real build photos will be added later.
+**"What is that plane?"**
 
----
+So this became a small round radar screen powered by an ESP32-C3 and a 1.28 inch circular display. It tracks live aircraft near my Freising area and also keeps an eye on Munich Airport / MUC / EDDM.
 
-## What it looks like
-
-A black puck with a round radar face. Traffic drifts across a north-up scope; the airport page shows Munich's real runways; tracking cards count down the closest approach of the plane overhead. It runs 24/7 on USB-C and needs no interaction - though one button lets you browse.
+Real build photos will be added later. For now, this repository is the public project page for the idea, the features, and the finished behaviour.
 
 ---
 
-## Features at a glance
+## What it is
 
-- **Six live pages**, auto-rotating on a tuned carousel, or browse manually with one button.
-- **Live ADS-B traffic** around your home location and Munich Airport, refreshed every few seconds.
-- **Dead-reckoned motion** between updates so aircraft glide instead of jumping.
-- **Airport operations map** with Munich's real parallel-runway geometry and on-field ground traffic.
-- **Per-aircraft tracking cards** - callsign, type, airline, route with full city names, live altitude/speed/distance, climb trend, and closest-point-of-approach ("passes 2.1 km from you in 1m36s").
-- **Coolness engine** - automatically spots rare airframes (A380, An-124, C-17...), military and government callsigns, and interesting situations, and can interrupt the carousel for a genuine rarity.
-- **Emergency awareness** - transponder squawks 7700/7600/7500 are flagged and jump to the front.
-- **Decoded METAR weather** for Munich (wind, visibility, cloud, temp, QNH, flight category).
-- **Gift-ready setup** - one small config file; a new owner only sets Wi-Fi and their location.
-- **Robust for 24/7 desk life** - auto-reconnect, rate-limit backoff, and graceful "last good data" fallback.
+MUC Desk Radar is a standalone desk gadget that shows real aircraft traffic on a round screen.
 
----
+It does not need a phone app, laptop window, browser tab, or external server running next to it. Once powered, it pulls live public aviation data, draws the aircraft on the display, rotates through different pages, and highlights the aircraft that are actually worth looking at.
 
-## The six pages
+The fun part is that it is not just a dot map. It tries to behave more like a tiny spotting assistant.
 
-| # | Page | What it shows |
-|---|------|---------------|
-| 1 | **Home Radar** | North-up scope centred on you. Range rings tour 20/40/60 km. Colour-coded traffic with arrival/departure/total counters. |
-| 2 | **MUC Map** | Munich Airport ops view - real runway schematic, on-field ground traffic, live temp/wind, DEP/GND/ARR counts, next arrival & departure. |
-| 3 | **Traffic Brief** | The four aircraft worth knowing right now: nearest, coolest, nearest helicopter, any emergency - plus a wide-area "how busy is the sky" count. |
-| 4 | **Nearest** | Full tracking card for the closest airborne aircraft, updating every second, with a rim blip pointing where to look. |
-| 5 | **Coolest** | Same card locked onto the highest-scored aircraft, with a one-line reason it's special. |
-| 6 | **MUC WX** | Decoded Munich METAR: wind, visibility, cloud, temperature, QNH, active-runway estimate, and a VFR->LIFR flight-category pill. |
+It can show:
+
+- aircraft near my Freising location
+- aircraft around Munich Airport
+- arrivals and departures at MUC
+- nearby aircraft with distance, speed, altitude, and direction
+- helicopters
+- rare or interesting aircraft
+- emergency squawks
+- Munich weather from METAR
+- a live estimate of where to look when something is passing nearby
 
 ---
 
-## Hardware - just two parts
+## Why I Think It Is Cool
 
-| Part | Role |
-|------|------|
-| **ESP32-C3 Super Mini** (HW-466AB, USB-C) | The brain - Wi-Fi microcontroller, powered & flashed over USB-C. |
-| **GC9A01 1.28" round LCD** (240x240, SPI) | The face - every page is drawn here. |
+Most flight trackers are made for phones or big screens. This one is different because it is a physical object. It just sits there and makes the airspace feel visible.
 
-Seven signal wires between them, powered over USB-C. The onboard BOOT button doubles as the page control, so no extra parts are strictly required.
+I like that it turns normal background traffic into something you can glance at. If a plane passes over Freising, the radar card can show what it is, how far away it is, whether it is climbing or descending, and roughly when it will be closest.
 
-**Data feeds (all free, no API key):** live ADS-B positions, on-demand route/airline lookups, and Munich METAR weather.
+It also watches Munich Airport separately, so it is not only about my immediate sky. The device can show MUC arrivals, departures, ground movement, weather, runway-style layout, and airport traffic in one small round display.
 
----
-
-## Under the hood
-
-The firmware is a single, heavily-commented Arduino sketch - roughly **3,400 lines**, **136 functions**, and **7 data structures** - with no dynamic memory churn (fixed-size caches keep it stable on the microcontroller). A quick map of what's inside:
-
-| Area | Responsibility | Approx. functions |
-|------|----------------|:---:|
-| Math & geo | Haversine distance, bearings, ETA, closest-point-of-approach, dead-reckoning | ~11 |
-| Text & layout | Chord-aware fitting for a round screen, UTF-8 -> ASCII transliteration | ~8 |
-| Networking / fetch | ADS-B positions, route/airline lookups, METAR - with timeouts, retries & rate-limit backoff | ~6 |
-| METAR decoder | Tokenises and decodes raw airport weather into readable fields | ~8 |
-| Coolness scoring | Type & callsign rules, situational bonuses, emergency detection | ~7 |
-| Drawing primitives | Aircraft triangles, star/rotor/emergency symbols, bezel, low-flicker blip erasing | ~15 |
-| Radar page | Zoom cycling, range rings, label selection, counters, motion stepping | ~25 |
-| Airport (MUC) page | Runway schematic, ground/air mapping, arrival/departure selection | ~20 |
-| Tracking cards | Nearest & Coolest cards with 1-second live ticks | ~12 |
-| Traffic brief | Nearest/cool/heli/emergency selection & activity counter | ~10 |
-| Page system | Carousel timing, interrupt-latched button handling, alert interrupts | ~8 |
-| Boot / setup / loop | Splash animation, Wi-Fi, main cadence | ~6 |
-
-Every tunable - ranges, zoom behaviour, refresh intervals, button pin - is a named define with a safe default, overridable from a single config file.
+The best moments are when the "coolest aircraft" page catches something unusual. A big cargo plane, a military callsign, a special type, a low overhead pass, or just a plane that makes you go "wait, what is that?"
 
 ---
 
-## What to expect
+## The Pages
 
-Plug it in, and after a short radar-ping boot animation it connects to Wi-Fi and shows live traffic within seconds. From then on it just runs: the carousel cycles the pages, tracking cards tick, and the sky above your desk becomes something you can actually read. Glance over when the rim blip lights - that's a plane, and it's telling you where to look up.
+The device has six main pages. It rotates through them by itself, but it can also be changed manually with the button.
+
+| Page | What it does |
+|---|---|
+| **Home Radar** | Shows live traffic around my Freising area on a north-up radar screen. Aircraft move smoothly instead of just jumping between updates. |
+| **MUC Map** | Shows Munich Airport traffic with the real airport orientation in mind, including arrivals, departures, ground traffic, wind, and temperature. |
+| **Traffic Brief** | A quick summary of what matters right now: nearest aircraft, coolest aircraft, helicopters, emergency traffic, and general activity. |
+| **Nearest Aircraft** | A full tracking card for the closest airborne aircraft, with callsign, aircraft type, airline/route when available, speed, altitude, distance, climb/descent, and closest approach. |
+| **Coolest Aircraft** | Tracks the most interesting aircraft currently visible and explains why it was picked. |
+| **MUC Weather** | Decodes Munich Airport METAR into readable weather: wind, visibility, clouds, temperature, pressure, and flight category. |
 
 ---
 
-*MUC Desk Radar - Munich / EDDM - built for the desk of a plane-spotter.*
+## Freising + Munich Tracking
+
+The radar is built around two views of the sky:
+
+**My local sky near Freising**  
+This is the personal part. It watches the airspace around where I actually am, so the aircraft on the screen are aircraft I might really hear or see outside.
+
+**Munich Airport / MUC / EDDM**  
+This is the airport part. Munich is close enough to make the traffic interesting, and busy enough that there is almost always something happening. The MUC page is built for arrivals, departures, airport weather, and runway-style movement rather than just random dots.
+
+I am not publishing exact private coordinates or personal network details here. The public repo is meant to show the project, not expose my setup.
+
+---
+
+## Hardware
+
+The build is intentionally small:
+
+| Part | Why it is there |
+|---|---|
+| **ESP32-C3 Super Mini** | Small microcontroller board that runs the whole thing. |
+| **1.28 inch round GC9A01 display** | The circular radar face. |
+| **USB-C power** | Keeps it simple as a desk device. |
+
+That is basically the whole physical idea: a small board, a round screen, and a case. I want it to feel like a little instrument, not a messy electronics demo.
+
+---
+
+## Things It Can Notice
+
+The radar does more than just list aircraft.
+
+It can pick out:
+
+- the nearest aircraft
+- the most interesting aircraft
+- helicopters
+- aircraft passing close to my location
+- flights arriving into Munich
+- flights departing from Munich
+- aircraft on or near the airport
+- rare aircraft types
+- military or government-style callsigns
+- emergency squawks
+- weather changes at Munich Airport
+
+The "coolest aircraft" logic is one of my favourite parts. A normal airliner is fine, but an A380, An-124, C-17, special callsign, helicopter, low pass, or emergency situation should not be treated like just another dot.
+
+---
+
+## What I Am Keeping Private
+
+This repository is a showcase, not a full firmware dump.
+
+I am intentionally not publishing:
+
+- firmware files
+- personal configuration
+- exact private location
+- network names or passwords
+- API-style secrets
+- unfinished local build notes
+
+The public version is for showing what the project does and why I built it. The private version stays on my machine.
+
+---
+
+## Current Status
+
+The project is already working as a live desk radar. It can run through the six pages, track aircraft around Freising, watch Munich Airport traffic, decode MUC weather, and highlight interesting planes automatically.
+
+Next things I want to add here:
+
+- real photos of the finished device
+- maybe a short video of the pages rotating
+- cleaner product-style screenshots
+- notes from using it day to day
+
+---
+
+## Why This Exists
+
+Because planes are more fun when the sky has subtitles.
+
+And because a tiny round screen showing live Munich traffic from my desk is exactly the kind of unnecessary thing I wanted to build.
+
+*Built around Freising and Munich Airport. Made for my desk, but hopefully fun for other aviation nerds too.*

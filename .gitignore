@@ -23,5 +23,5 @@
 /docs/renders/
 /docs/hardware/
 
-# Personal config (Wi-Fi credentials etc.)
+# Personal config
 config.h
