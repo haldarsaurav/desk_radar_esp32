@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <strong>A tiny, physical window into the sky above Munich—and a second one built for Estonia.</strong>
+  <strong>A tiny, physical window into the sky above Munich.</strong>
 </p>
 
 MUC Desk Radar is a standalone Wi-Fi aircraft tracker built around an ESP32-S3 and a 240 × 240 round display. It turns live ADS-B positions, airport weather, orbital data and its own learned traffic history into a quiet desk instrument.
@@ -39,7 +39,6 @@ It answers the simple question that started the project—**“What is that plan
 | Behavior memory | Up to 64 aircraft tracks × 48 position fixes |
 | Traffic memory | 60 one-minute samples plus a learned 7 × 24-hour weekly model |
 | Special alerts | Squawk 7500, 7600 and 7700 |
-| Two builds | Munich/Freising and Tartu/Tallinn |
 
 ---
 
@@ -140,7 +139,7 @@ The device deliberately separates **what is drawn**, **what counts as local**, *
 | Airport map range | Reference airport | Area visible around the runway diagram | Airport page only |
 | Fetch radius | Shifted request center | One shared request large enough to contain both home and airport circles | Network coverage |
 
-Munich uses Freising as home and MUC/EDDM as the airport. The gift build uses Tartu as home and Tallinn/EETN as the reference airport.
+This presentation uses Freising as home and Munich Airport/MUC/EDDM as the reference airport.
 
 The shared aircraft request is shifted and widened when necessary so both circles fit inside it. That avoids two simultaneous live-aircraft requests while still letting a distant home and airport have independent views.
 
@@ -193,9 +192,7 @@ The default sweep turns at about 6 rpm—one revolution every 10 seconds. It is 
 
 ### AIRPORT — runway geometry and operations
 
-| Munich / EDDM | Tallinn / EETN |
-|---|---|
-| <img src="docs/renders/rev5/munich/airport.png" width="280" alt="Munich Airport view"> | <img src="docs/renders/rev5/estonia/airport.png" width="280" alt="Tallinn Airport view"> |
+<p align="center"><img src="docs/renders/rev5/munich/airport.png" width="360" alt="Munich Airport view"></p>
 
 This page is centered on the reference airport, not on home. Runways are drawn using their real headings, lengths and relative positions. Aircraft are classified as arrivals, departures or ground traffic.
 
@@ -419,24 +416,312 @@ During an emergency alert, ordinary page cycling and AUTO range changes are supp
 
 ---
 
-## Munich and Estonia
+## Complete visual language
 
-The two physical radars use the same feature set and visual language but have different local geography.
+The display uses the same visual grammar on every page. Once these marks are familiar, most screens can be read without searching for a legend.
 
-| | Munich build | Estonia gift build |
-|---|---|---|
-| Home center | Freising, Germany | Tartu, Estonia |
-| Reference airport | Munich / EDDM | Tallinn / EETN |
-| Airport geometry | Parallel runway system | Tallinn runway 08/26 |
-| Personal Wi-Fi credentials | Entered locally by owner | Entered locally by recipient |
+### General colors
 
-| Munich radar | Estonia radar |
+| Color | Meaning |
 |---|---|
-| <img src="docs/renders/rev5/munich/radar.png" width="280" alt="Munich radar build"> | <img src="docs/renders/rev5/estonia/radar.png" width="280" alt="Estonia radar build"> |
+| Cyan | The main live value: the number answering the page’s question |
+| Pale cyan | A secondary live value |
+| Green | Descending, arriving or healthy |
+| Amber | Climbing, departing, holding, inferred information or something worth attention |
+| Red | Emergency, go-around, severe descent, or the fixed north marker |
+| Violet | Ground traffic or a circling behavior |
+| Lilac | Space/ISS information or a survey pattern |
+| Orange | Military flag supplied by the aircraft feed |
+| Grid green | Non-data furniture: rings, ticks, runway outlines and scale |
+| Grey | Labels, units and explanatory text |
 
-No exact recipient address is published. The Estonia build uses Tartu as its general home center and Tallinn as its airport reference.
+Aircraft altitude coloring is a separate continuous gradient described earlier. When that option is enabled, the aircraft body uses altitude color while behavior rings, labels and page statistics retain the semantic colors above.
 
-Before gifting, the unit should be soak-tested for a day, checked for high FETCH OK reliability, and then have all settings erased. That removes test Wi-Fi credentials and returns it to the first-run setup experience.
+### Shapes and marks
+
+| Mark | Exact meaning |
+|---|---|
+| Pointed chevron | Airborne aircraft; the point follows the reported true track |
+| Fading track behind a chevron | Retained recent position fixes—where the aircraft actually went |
+| Thin line ahead | Velocity leader—where present heading and groundspeed would carry it |
+| Violet dot | Stationary or nearly stationary ground contact |
+| Violet dot with stub | Moving ground contact/taxiing |
+| Faint mark pinned to the rim | Known contact outside the drawn scope but inside the fetched picture |
+| Colored ring around aircraft | Detected holding, circling, survey, go-around or emergency descent |
+| Red triangle at top | True north |
+| Dim rotating radial line | Decorative radar sweep; it does not trigger detections |
+| Bright traveling rim arc | Health ring and proof that the display loop is alive |
+| Small pips near the bottom | Position in the enabled page sequence |
+
+### Health colors
+
+| Health color | Meaning |
+|---|---|
+| Violet | Boot has begun |
+| Blue | Connecting or actively fetching |
+| Amber | Warning, retry, stale information or degraded feed |
+| Cyan | Network/data initialization progressing |
+| Green | Normal operation and fresh data |
+| Pulsing red | Emergency aircraft alert |
+
+---
+
+## Every on-screen term
+
+### RADAR terms
+
+| Term or number | Meaning |
+|---|---|
+| Number at top | Airborne aircraft inside the currently drawn radar range |
+| Number at left | Aircraft climbing inside that same drawn range |
+| Number at right | Aircraft descending inside that same drawn range |
+| Outer “km” label | Current radar edge; AUTO changes this value only |
+| Three rings | ¼, ½ and ¾ of the outer radar range |
+| AUTO | Automatic range selection is enabled |
+| Callsign tag | Radio callsign, not necessarily the passenger-facing flight number |
+| HOLD / CIRC / SURV / G/A | Holding, circling, survey pattern or go-around |
+| Clock | Local time in the selected 12- or 24-hour format |
+| Site label | The short home/airport identity chosen for this build |
+
+### AIRPORT terms
+
+| Term or mark | Meaning |
+|---|---|
+| MUC / EDDM | Munich Airport’s presentation label and ICAO weather station |
+| Runway numbers | Magnetic runway direction rounded to the nearest ten degrees |
+| ARR | Descending/approaching aircraft associated with the field |
+| DEP | Climbing/departing aircraft associated with the field |
+| Active runway highlight | Runway end most nearly facing the reported METAR wind |
+| Amber inferred direction | Wind was unusable, so nearby descending traffic supplied the estimate |
+| Ground chevron | Moving on a runway |
+| Ground stub | Taxiing |
+| Ground dot | Parked or nearly stationary |
+| MILITARY / HEAVY / ROTARY | Most notable nearby airport contact category |
+
+The airport callout gives priority to operationally interesting traffic: emergency squawk +120, go-around +70, military +60, heavy category +45, high-performance category +30 and rotorcraft +25. A score of at least 40 earns the box, and the strongest candidate is shown. Its reason label follows strict priority: EMERGENCY, GO-AROUND, MILITARY, ROTARY, HEAVY, then HIGH PERF.
+
+### TRAFFIC terms
+
+| Term | Meaning |
+|---|---|
+| AIRBORNE WITHIN … KM | Live airborne count inside the fixed activity radius |
+| CLIMBING | Positive vertical-rate contacts |
+| DESCENDING | Negative vertical-rate contacts |
+| OVER FL300 | Aircraft above flight level 300 / 30,000 ft |
+| ON GROUND | Contacts reporting ground state |
+| ROTARY | Helicopters/rotorcraft identified from aircraft category |
+| MILITARY | Contacts explicitly flagged military by the feed |
+| MOSTLY N/NE/E/SE/S/SW/W/NW | Busiest of eight bearing sectors around home |
+| One-hour line | 60 one-minute mean traffic samples |
+| collecting… | Not enough complete clock minutes yet |
+| no clock yet | NTP time is not available, so minute buckets cannot be committed |
+
+### NEAREST and COOLEST terms
+
+| Term | Meaning |
+|---|---|
+| Large callsign | Selected aircraft identity |
+| Airline/operator | Enriched operator when the lookup source knows it |
+| Type | Aircraft model/type description |
+| Registration | Civil registration/tail number |
+| Route | Known origin and destination from enrichment |
+| Distance | Current great-circle/local-plane distance from home |
+| Bearing/cardinal direction | True bearing and its readable compass sector |
+| ALT | Barometric altitude in feet |
+| GS | Groundspeed in knots |
+| VS | Vertical speed in feet per minute |
+| CPA | Predicted closest point of approach if course and speed remain constant |
+| T− / minutes | Time until that predicted CPA |
+| MIL | Military flag from the live feed |
+| COOLEST reason | Strongest reason the contact won: behavior, military, rotorcraft, rarity or heavy type |
+
+### SPACE terms
+
+| Term | Meaning |
+|---|---|
+| AZ | True azimuth from home to the ISS |
+| EL | Elevation above the observer’s horizon |
+| DIST | Great-circle ground distance |
+| Horizon ring | 0° elevation |
+| Center of dome | Zenith / 90° elevation |
+| VISIBLE | Above 10°, station sunlit and home dark |
+| NEXT PASS | First predicted crossing above 10° in the next 24 hours |
+| MAX EL | Highest estimated elevation during that pass |
+| T− | Time remaining until a scheduled launch |
+| T+ | Time elapsed since its scheduled launch time |
+| NO PASS 24H | No qualifying pass found within the search window |
+
+### WEATHER terms
+
+| Term | Meaning |
+|---|---|
+| METAR | Standard coded airport weather observation |
+| Age | Time since the observation itself, not time since the device downloaded it |
+| VFR | Visual conditions |
+| MVFR | Marginal visual conditions |
+| IFR | Instrument conditions |
+| LIFR | Low instrument conditions |
+| WIND | Direction wind comes from and speed in knots |
+| VIS | Reported visibility |
+| TEMP / DEW | Air temperature and dew point |
+| Near-dew warning | Temperature and dew point separated by roughly 2°C or less |
+| QNH | Sea-level pressure in hectopascals |
+| Clouds | Reported cloud amount/base decoded from the METAR |
+| NO METAR | No usable report is currently available for EDDM |
+
+### PATTERNS terms
+
+| Term | Meaning |
+|---|---|
+| HOLDING | Repeated coordinated turn/racetrack-like containment |
+| CIRCLING | Tight, slower orbit in a small area |
+| SURVEY PATTERN | Multiple reversals and long path with little net displacement |
+| GO-AROUND | Descent to a real low point followed by a sustained climb |
+| EMERGENCY DESCENT | Extreme descent rate plus significant altitude loss |
+| FAST CLIMB | More than 2,500 ft/min below 20,000 ft |
+| APPROACH | Descending, below 15,000 ft and getting closer inside 45 km |
+| DEPARTURE | Climbing, below 15,000 ft and getting farther inside 45 km |
+| OVERFLIGHT | Above 24,000 ft and approximately level |
+| LEVEL | No stronger behavior classification applies |
+
+### TRENDS terms
+
+| Term | Meaning |
+|---|---|
+| LEARNING | Fewer than three observations exist for this weekday/hour bucket |
+| Normal | z-score from −1 to +1 |
+| Busier / Quieter | z-score beyond ±1 |
+| Much busier / Much quieter | z-score beyond ±2 |
+| Baseline | Learned mean for the same weekday and hour |
+| History line | Last 24 observed hourly values |
+| Progress | Coverage of the weekly model, not a network-download percentage |
+
+### SYSTEM terms
+
+| Term | Meaning |
+|---|---|
+| FETCH OK | Percentage of aircraft polls that returned a usable payload |
+| FEED | adsb.lol primary or adsb.fi fallback |
+| Data age | Elapsed time since the last good aircraft picture |
+| Wi-Fi / RSSI | Network name and received signal strength |
+| Frame time / FPS | Display-rendering performance |
+| RAM | Internal memory available to the time-critical renderer/network stack |
+| PSRAM | External memory used for larger histories and supporting data |
+| Uptime | Time since boot |
+| Status/last result | Current network task state and most recent request outcome |
+
+### ABOUT and page pips
+
+ABOUT contains the owner credit and animation only; it does not affect aircraft processing. The bottom pips are a navigation indicator. Disabled pages disappear from the sequence, so the pips describe the active set rather than a fixed page number.
+
+---
+
+## Everything configurable
+
+The captive setup page exposes the controls that genuinely affect the current hardware. Settings that could not work on this seven-pin display—backlight brightness, night dimming, runtime SPI speed and RGB-order changes—were deliberately removed.
+
+| Setup area | What can be changed | Effect |
+|---|---|---|
+| Wi-Fi | Scanned/manual 2.4 GHz network, password, connection test, hostname | Moves the radar to a network without reflashing |
+| Home | Latitude, longitude and time zone | Center for radar, distance, bearing, traffic, Trends and solar calculations |
+| Radar range | Fixed 10–150 km slider | Outer ring when AUTO is off |
+| AUTO | On/off, minimum and maximum range | Lets traffic density choose a rung inside the allowed window |
+| Airport map | 5–60 km | Scale of the Munich Airport page |
+| Your sky | 5–400 km activity radius | Fixed meaning of local traffic for Traffic, Coolest, Patterns and Trends |
+| Sweep | 2–20 rpm | Visual sweep speed only |
+| Phosphor | On/off and long/medium/short/very-short decay | Persistence of the CRT-style drawing layer |
+| Velocity leaders | On/off | Future-position direction/speed cue |
+| Altitude color | On/off | Warm-low to cool-high aircraft symbols |
+| Labels | 0, 1, 2, 3, 5 or 8 | Maximum simultaneous callsign tags |
+| Pages | Enable/disable, starting page | RADAR always remains enabled |
+| Auto-cycle | On/off and 4–120 second dwell | Automatic page advance |
+| Transition | Instant, fade, slide or iris | Animation between pages |
+| Screen | 0°, 90°, 180° or 270° rotation; color inversion | Physical orientation/panel correction |
+| Status LED | Enabled, alerts-only, brightness and supported board pin | Mirrors the health ring or stays dark until needed |
+| Aircraft refresh | 2–30 seconds | Live feed polling; 8 seconds is the recommended balance |
+| Fetch radius | 20–250 km | Base area requested before automatic widening |
+| Enrichment | On/off | Aircraft type, registration, operator and route lookups |
+| Space data | On/off | ISS and launch requests/page data |
+| Emergency alerts | On/off | Full-screen 7500/7600/7700 interruption |
+| Military-only | On/off | Hides civil contacts from the view; AUTO still measures the full sky |
+| Learned baseline | Restart learning | Clears Trends history without erasing Wi-Fi |
+| Personal | Owner name and 12/24-hour clock | ABOUT credit and radar clock |
+| Maintenance | Erase all settings | Returns the device to first-run Wi-Fi setup |
+
+The reference airport and its runway geometry are intentionally fixed in the build. They are not casual setup fields: changing them incorrectly would make weather, bearings and runway drawings disagree.
+
+### Button and automatic navigation
+
+| Action | Result |
+|---|---|
+| Short MODE press | Advance to the next enabled page |
+| Hold MODE for about 1.2–2 seconds | Restart into the setup portal |
+| Quick double RESET | Alternate route into setup |
+| Auto-cycle enabled | Advance after the selected dwell time |
+| Emergency active | Freeze normal navigation on the warning |
+
+Do not hold BOOT/MODE while applying power. GPIO0 is also the programming strap; holding it during reset asks the ESP32-S3 to wait for flashing, leaving the display black until a normal restart.
+
+### Units
+
+The current display deliberately uses one consistent aviation-oriented mixture:
+
+- distance in kilometers;
+- altitude in feet;
+- speed in knots;
+- vertical speed in feet per minute;
+- pressure in hectopascals;
+- temperature in degrees Celsius;
+- bearings and runway orientation in degrees.
+
+---
+
+## Connection and recovery messages
+
+| Message | Meaning | Normal action |
+|---|---|---|
+| joining | Connecting to the saved router | Wait |
+| connected | Network association succeeded | None |
+| network not found | SSID absent, mistyped or unavailable | Reopen setup and select it |
+| wrong password? | Router rejected authentication | Re-enter the password |
+| no answer from AP | Network is visible but did not answer | Improve Wi-Fi range |
+| connection lost | A previously working link dropped | Device reconnects itself |
+| reconnecting | Automatic recovery is running | Wait |
+| join timed out | Router did not finish association | Wait or reopen setup |
+| no credentials | No Wi-Fi has been saved | Join DESK-RADAR-xxxx |
+| net task up | Networking task started | None |
+| reading baseline | Loading learned traffic history | None |
+| allocating buffers | Reserving network/parser memory | None |
+| out of memory | Required working memory could not be reserved | Reflash/check build configuration |
+| PSRAM off in build | External RAM support was disabled when flashed | Reflash with PSRAM enabled |
+| collecting… | Waiting for enough time-based samples | Wait |
+| NO METAR | Weather report unavailable | Check later/verify airport source |
+| LEARNING | Trends does not yet have enough matching weekday/hour history | Let it run |
+
+One missed aircraft poll is treated as noise. The device keeps the last valid picture, reports age honestly and warns only after repeated misses make the feed stale.
+
+---
+
+## Aviation glossary
+
+| Term | Plain-language meaning |
+|---|---|
+| ADS-B | Automatic Dependent Surveillance–Broadcast: aircraft transmitting identity, position and motion |
+| Callsign | Radio identity used by air traffic control; related to but not always equal to the ticketed flight number |
+| Squawk | Four-digit transponder code |
+| Knot | One nautical mile per hour, approximately 1.852 km/h |
+| Flight level | Pressure altitude in hundreds of feet; FL300 means 30,000 ft |
+| METAR | Standard airport weather observation |
+| QNH | Pressure reduced to sea level for altimeter setting |
+| VFR / IFR | Visual / instrument flight rules and their associated weather categories |
+| CPA | Closest point of approach under constant-course, constant-speed projection |
+| Go-around | A landing approach discontinued into a climb |
+| Hold | Repeating racetrack-like path while waiting or sequencing |
+| Heavy | Wake-turbulence category for large aircraft such as the 747, 777 or A380 |
+| Rotorcraft | Helicopter or other rotary-wing aircraft |
+| True bearing | Direction relative to geographic north |
+| Magnetic runway number | Runway heading relative to magnetic north, rounded to tens of degrees |
+| NTP | Internet time synchronization used for clock, minute/hour buckets and solar calculations |
 
 ---
 
@@ -516,12 +801,11 @@ The display module has no controllable backlight pin, so brightness and automati
 ## Guides, printable material and visuals
 
 - [Munich illustrated field guide](docs/desk_radar_field_guide.html)
-- [Estonia illustrated field guide](docs/desk_radar_field_guide_ee.html)
 - [Printable spotter’s field manual](docs/spotters_field_manual.pdf)
 - [Enclosure concepts](design_concepts/)
 - [All real firmware screen renders](docs/renders/rev5/)
 
-The HTML field guides include every page, every color and the meaning of the displayed numbers. The Munich and Estonia editions use their own real screen set.
+The HTML field guide includes every page, every color and the meaning of the displayed numbers, using the Munich screen set.
 
 ---
 
@@ -537,6 +821,6 @@ This public repository contains only presentation material:
 | PDFs and build material | Build scripts and executable code |
 | Enclosure and product concepts | Personal location details beyond the stated city center |
 
-The working firmware exists as two separate projects—Munich and Estonia—in the private [desk_radar_esp32_personal](https://github.com/haldarsaurav/desk_radar_esp32_personal) repository.
+The working firmware lives separately in the private [desk_radar_esp32_personal](https://github.com/haldarsaurav/desk_radar_esp32_personal) repository.
 
 That separation is deliberate: this repository is what I can hand to a friend to explain **what the radar is, what it sees and how it thinks**, without publishing the code that runs it.
