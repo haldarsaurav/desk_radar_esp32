@@ -1,7 +1,12 @@
 # MUC Desk Radar
 
+**Munich · Product Rev 2.3 · firmware 5.7.1 · project closeout: 25 September 2026**
+
+> Copyright 2026 Sam / @haldarsaurav. All rights reserved. Permission is required
+> for reuse. See the [licence](LICENSE) and [permission guide](docs/PERMISSIONS.md).
+
 <p align="center">
-  <img src="docs/renders/rev5/munich/radar.png" width="420" alt="Real MUC Desk Radar screen showing live aircraft around Freising">
+  <img src="docs/renders/rev5/munich/radar.png" width="420" alt="MUC Desk Radar firmware render with example aircraft near Munich">
 </p>
 
 <p align="center">
@@ -21,7 +26,7 @@ It answers the simple question that started the project—**“What is that plan
 - Which runway direction is probably active?
 - Where is the ISS in my sky, and when is its next useful pass?
 
-> This repository is the public, presentation-only home of the project: explanations, real renders, HTML guides, PDFs, wiring information and enclosure concepts. It intentionally contains **no firmware source and no private configuration**.
+> This repository is the public, presentation-only home of the project: the complete README guide, firmware renders, wiring information and enclosure concepts. It intentionally contains **no firmware source and no private configuration**.
 
 ---
 
@@ -37,14 +42,14 @@ It answers the simple question that started the project—**“What is that plan
 | Stored contacts | Up to the nearest 96 contacts from the shared aircraft request |
 | Radar AUTO ladder | 10, 15, 20, 30, 50, 75, 100, 150 or 250 km |
 | Behavior memory | Up to 64 aircraft tracks × 48 position fixes |
-| Traffic memory | 60 one-minute samples plus a learned 7 × 24-hour weekly model |
+| Traffic memory | 60 one-minute samples, an hourly baseline and a learned 7 × 24-hour weekly model |
 | Special alerts | Squawk 7500, 7600 and 7700 |
 
 ---
 
 ## Real screens from the firmware
 
-These are not UI mock-ups. They were rendered by the same page-drawing code used on the physical display.
+These are host-rendered examples from the firmware drawing code, not photographs or live captures. The retained screen set predates the final 5.7.1 fixes; exact labels and units can differ from the current settings. The descriptions below explain the current Munich configuration.
 
 | Live radar | Munich Airport | Traffic now |
 |---|---|---|
@@ -139,7 +144,7 @@ The device deliberately separates **what is drawn**, **what counts as local**, *
 | Airport map range | Reference airport | Area visible around the runway diagram | Airport page only |
 | Fetch radius | Shifted request center | One shared request large enough to contain both home and airport circles | Network coverage |
 
-This presentation uses Freising as home and Munich Airport/MUC/EDDM as the reference airport.
+This presentation covers Munich, with Munich Airport (MUC / EDDM) as the reference field. The home position is set separately in the setup page.
 
 The shared aircraft request is shifted and widened when necessary so both circles fit inside it. That avoids two simultaneous live-aircraft requests while still letting a distant home and airport have independent views.
 
@@ -167,12 +172,7 @@ AUTO evaluates the complete airborne picture, even when the display is temporari
 
 ### Why it changes slowly
 
-The first valid evaluation—after the feed has had time to settle—may adopt the ideal range immediately. After that:
-
-- the same ideal must be requested for 10 consecutive evaluations, roughly 10 minutes;
-- at least one hour must have passed since the previous range change;
-- the range moves only one rung at a time;
-- stale data or an emergency alert suspends the decision.
+The first valid evaluation can settle the initial range. Later decisions use the median of the preceding hour’s valid minute samples and move only one rung toward that target. A flickering count cannot demand a rapid zoom change. Stale data and emergency alerts suspend the decision.
 
 The result feels like an instrument adapting to the day, not a camera constantly zooming. The screen prints **AUTO** whenever this mode is active.
 
@@ -306,9 +306,9 @@ This is behavior inference from public position data. It can identify a convinci
 
 <p align="center"><img src="docs/renders/rev5/munich/trends.png" width="360" alt="Trends page comparing current traffic with learned normal"></p>
 
-The radar learns a separate baseline for every weekday and hour: **7 days × 24 hours = 168 buckets**.
+The radar learns both a **24-hour daily model** and a **7 × 24-hour weekly model**. The daily model gives an initial comparison on day three when enough valid samples exist; the weekday/hour model takes over as it matures. Missing or stale feed periods do not count as quiet skies.
 
-Each bucket stores a running mean, variance accumulator and sample count using Welford’s numerically stable update. A verdict appears only after at least three observations for the current weekday/hour.
+Each bucket keeps a running mean, variance and sample count. TRENDS explicitly waits for fresh data when the feed is stale, and missing minutes break the sparkline instead of connecting unrelated observations.
 
 The comparison is a z-score:
 
@@ -451,7 +451,6 @@ Aircraft altitude coloring is a separate continuous gradient described earlier. 
 | Red triangle at top | True north |
 | Dim rotating radial line | Decorative radar sweep; it does not trigger detections |
 | Bright traveling rim arc | Health ring and proof that the display loop is alive |
-| Small pips near the bottom | Position in the enabled page sequence |
 
 ### Health colors
 
@@ -588,11 +587,11 @@ The airport callout gives priority to operationally interesting traffic: emergen
 
 | Term | Meaning |
 |---|---|
-| LEARNING | Fewer than three observations exist for this weekday/hour bucket |
+| LEARNING | Not enough valid observations exist for the applicable baseline yet |
 | Normal | z-score from −1 to +1 |
 | Busier / Quieter | z-score beyond ±1 |
 | Much busier / Much quieter | z-score beyond ±2 |
-| Baseline | Learned mean for the same weekday and hour |
+| Baseline | Learned mean for the hour, refined by weekday/hour as history matures |
 | History line | Last 24 observed hourly values |
 | Progress | Coverage of the weekly model, not a network-download percentage |
 
@@ -610,9 +609,9 @@ The airport callout gives priority to operationally interesting traffic: emergen
 | Uptime | Time since boot |
 | Status/last result | Current network task state and most recent request outcome |
 
-### ABOUT and page pips
+### ABOUT
 
-ABOUT contains the owner credit and animation only; it does not affect aircraft processing. The bottom pips are a navigation indicator. Disabled pages disappear from the sequence, so the pips describe the active set rather than a fixed page number.
+ABOUT contains the owner credit, product revision and animation. It does not affect aircraft processing. The Munich configuration has eleven pages when ABOUT is enabled; the default cycle excludes ABOUT and has ten. Disabled pages are skipped by MODE and automatic cycling.
 
 ---
 
@@ -638,7 +637,7 @@ The captive setup page exposes the controls that genuinely affect the current ha
 | Transition | Instant, fade, slide or iris | Animation between pages |
 | Screen | 0°, 90°, 180° or 270° rotation; color inversion | Physical orientation/panel correction |
 | Status LED | Enabled, alerts-only, brightness and supported board pin | Mirrors the health ring or stays dark until needed |
-| Aircraft refresh | 2–30 seconds | Live feed polling; 8 seconds is the recommended balance |
+| Aircraft refresh | 6–300 seconds | Live feed polling; 8 seconds is the recommended balance |
 | Fetch radius | 20–250 km | Base area requested before automatic widening |
 | Enrichment | On/off | Aircraft type, registration, operator and route lookups |
 | Space data | On/off | ISS and launch requests/page data |
@@ -648,7 +647,7 @@ The captive setup page exposes the controls that genuinely affect the current ha
 | Personal | Owner name and 12/24-hour clock | ABOUT credit and radar clock |
 | Maintenance | Erase all settings | Returns the device to first-run Wi-Fi setup |
 
-The reference airport and its runway geometry are intentionally fixed in the build. They are not casual setup fields: changing them incorrectly would make weather, bearings and runway drawings disagree.
+This page documents the Munich configuration: select MUC as the reference field. Its runway geometry comes from the firmware’s airport data. Home coordinates remain independently configurable.
 
 ### Button and automatic navigation
 
@@ -664,15 +663,23 @@ Do not hold BOOT/MODE while applying power. GPIO0 is also the programming strap;
 
 ### Units
 
-The current display deliberately uses one consistent aviation-oriented mixture:
+Choose **Aviation** (default) or **Metric** in setup.
 
-- distance in kilometers;
-- altitude in feet;
-- speed in knots;
-- vertical speed in feet per minute;
-- pressure in hectopascals;
-- temperature in degrees Celsius;
-- bearings and runway orientation in degrees.
+| Measurement | Aviation | Metric |
+| --- | --- | --- |
+| Air distance | NM | km |
+| Airport map scale | km | km |
+| Altitude | ft | m |
+| Ground speed | kt | km/h |
+| Climb / descent | fpm | m/s |
+| Wind | KT | MPS |
+| Visibility | SM | km |
+| Temperature / pressure | °C / hPa | °C / hPa |
+
+The airport map keeps kilometres for runway geometry. Visibility uses statute miles in
+aviation mode. Flight levels appear in aviation mode; metric mode shows height instead.
+Some fixed diagnostic and emergency labels retain the units printed beside their values.
+Range controls are configured in kilometres even when the scope displays nautical miles.
 
 ---
 
@@ -696,7 +703,7 @@ The current display deliberately uses one consistent aviation-oriented mixture:
 | PSRAM off in build | External RAM support was disabled when flashed | Reflash with PSRAM enabled |
 | collecting… | Waiting for enough time-based samples | Wait |
 | NO METAR | Weather report unavailable | Check later/verify airport source |
-| LEARNING | Trends does not yet have enough matching weekday/hour history | Let it run |
+| LEARNING | Trends needs more valid hourly history | Let it run with a fresh feed |
 
 One missed aircraft poll is treated as noise. The device keeps the last valid picture, reports age honestly and warns only after repeated misses make the feed stale.
 
@@ -781,12 +788,12 @@ Volunteer ADS-B services can be incomplete or temporarily unavailable. The radar
 
 ## Using it
 
-On first power-up, the radar creates a Wi-Fi network named **DESK-RADAR-xxxx**. Join it from a phone or laptop, choose the home network, enter its password and save.
+On first power-up, the radar creates an open Wi-Fi network named **DESK-RADAR-xxxx**. Scan the display’s Wi-Fi QR code or join that network manually. Open **http://192.168.4.1/**, choose the home 2.4 GHz network, enter its password and save. Setup settings survive restarts. The portal is a setup mode, not an always-on web dashboard. A quick double RESET within the eight-second startup window also opens setup.
 
 After that:
 
 - press MODE to move through enabled pages;
-- hold MODE for about two seconds to reopen settings;
+- hold MODE for about 1.2 seconds after startup to reopen settings;
 - choose which pages participate in the cycle;
 - set radar, AUTO, activity and airport-map ranges;
 - control refresh timing, alerts, clock, status light and personalization;
@@ -798,29 +805,42 @@ The display module has no controllable backlight pin, so brightness and automati
 
 ---
 
-## Guides, printable material and visuals
+## Reliability and final status
 
-- [Munich illustrated field guide](docs/desk_radar_field_guide.html)
-- [Printable spotter’s field manual](docs/spotters_field_manual.pdf)
-- [Enclosure concepts](design_concepts/)
-- [All real firmware screen renders](docs/renders/rev5/)
+Firmware 5.7.1 includes a corrected weather text-formatting bug, one-time font initialization
+with fallback, memory checks before optional network requests, bounded recovery attempts,
+validation of orbital data and protection against learning from stale observations.
+Optional information can wait when memory is tight; the main aircraft feed has priority.
+These fixes do not establish a guarantee of indefinite uptime.
 
-The HTML field guide includes every page, every color and the meaning of the displayed numbers, using the Munich screen set.
+The setup page’s Health section explains the current condition and links to the diagnostic log.
+With the FATFS partition used by the verified Arduino build, logs roll between two 1 MB
+segments. Opening setup restarts the device, so the persisted log is useful for investigating
+the previous run. A missing log filesystem falls back to Serial logging.
 
----
+**Closeout checks, 25 September 2026:** all 15 standalone rule suites passed for the Munich
+firmware, along with pin checks and real-browser setup-page checks. Retained device-build
+records from 11 September show a successful ESP32-S3 compile and link with format errors
+treated as failures. Current source files were compared with those retained build inputs.
 
-## Repository boundary
+**Still a physical check:** no hardware was flashed during this publication. A long-running
+test with real Wi-Fi/TLS traffic and page transitions is still needed to confirm stability.
+The project is closed out as a source and documentation snapshot, not a claim of completed
+hardware endurance testing. ADS-B coverage and derived behaviour can be incomplete; use this
+as a personal spotting display, never for navigation or operational decisions.
 
-This public repository contains only presentation material:
+## Project files and rights
 
-| Included here | Kept out |
-|---|---|
-| README and explanations | Firmware source |
-| Real rendered screen images | Wi-Fi credentials |
-| HTML guides and datasheets | Private configuration |
-| PDFs and build material | Build scripts and executable code |
-| Enclosure and product concepts | Personal location details beyond the stated city center |
+This README is the complete public guide for the Munich desk radar. Screen images and
+enclosure concepts remain in the repository as visual references. Standalone manuals have
+been retired so that explanations are maintained here.
 
-The working firmware lives separately in the private [desk_radar_esp32_personal](https://github.com/haldarsaurav/desk_radar_esp32_personal) repository.
+Firmware, regression checks and build instructions live in
+[desk_radar_esp32_code](https://github.com/haldarsaurav/desk_radar_esp32_code).
+Repository access depends on its permissions. This public showcase contains no firmware,
+private configuration or device credentials.
 
-That separation is deliberate: this repository is what I can hand to a friend to explain **what the radar is, what it sees and how it thinks**, without publishing the code that runs it.
+Copyright 2026 Sam (haldarsaurav). All rights reserved. Read [LICENSE](LICENSE) and the
+[permission guide](docs/PERMISSIONS.md) before reusing project material. Libraries, fonts,
+data and other third-party material keep their own terms. This is an independent personal
+project, with no affiliation with Munich Airport, airlines or feed providers.

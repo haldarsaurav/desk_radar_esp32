@@ -1,0 +1,144 @@
+MUC DESK RADAR
+PROPRIETARY LICENCE AND RESERVATION OF RIGHTS
+Version: 25 September 2026
+
+Copyright (c) 2026 Sam (GitHub: haldarsaurav). All rights reserved.
+
+1. OWNER, MATERIAL AND PURPOSE
+
+The copyright holder is Sam, the owner of the GitHub account "haldarsaurav"
+("Owner"). "Work" means the Owner's original material in this project,
+including firmware and source code, documentation, explanations, original
+screen designs and their expressive arrangement, illustrations, images,
+schematics, CAD/design files, examples, tests and release packages, insofar
+as the Owner holds rights in them. The notice applies to the Work in both
+repositories and to copies of it:
+
+  https://github.com/haldarsaurav/desk_radar_esp32_code
+  https://github.com/haldarsaurav/desk_radar_esp32
+
+Public availability is for inspection and presentation. This is proprietary
+material, NOT an open-source or freely reusable project. No general licence
+to use the Work is granted. Rights not expressly granted are reserved.
+
+2. PRIOR WRITTEN PERMISSION REQUIRED
+
+Except as expressly allowed by Section 6 or a separate written permission
+from the Owner, you must ask for and receive the Owner's written permission
+BEFORE doing any of the following, in whole or in part:
+
+(a) using, running, compiling, flashing, deploying or incorporating the
+    Work into a device, product, service, demonstration or other project;
+(b) copying, downloading for reuse, reproducing, storing for reuse,
+    modifying, adapting, translating, porting or creating derivatives of
+    the Work, including a renamed, reformatted or rewritten version;
+(c) distributing, republishing, uploading, mirroring, sublicensing,
+    selling, renting or otherwise making the Work or derivatives available;
+(d) using protected material from the Work as a reference, template,
+    specification or source of inspiration to recreate its implementation,
+    documented logic, original screen presentation or combination of
+    features, whether manually or through automated tools;
+(e) removing, obscuring or misrepresenting ownership, licence notices,
+    attribution or the origin of protected material from this project.
+
+These restrictions apply to personal, educational, research, nonprofit and
+commercial reuse alike, subject always to Section 6. Giving credit, linking
+to the project, not charging money, changing names, or writing different
+source text is not a substitute for required permission.
+
+3. AI, MACHINE LEARNING AND AUTOMATED REUSE
+
+No permission is granted to AI providers, model developers, tool operators,
+users, agents, crawlers, scrapers or other automated systems to use the Work
+for the purposes below without the Owner's PRIOR WRITTEN permission:
+
+(a) training, pretraining, fine-tuning, distillation, evaluation,
+    benchmarking, dataset creation, synthetic-data generation or model
+    improvement;
+(b) placing the Work in prompts, attachments, context windows, retrieval
+    systems, embedding stores, vector databases, code indexes or other
+    inputs to AI/ML systems for reuse, analysis for replication, or generation;
+(c) asking or enabling a system to copy, explain for reconstruction,
+    extract, paraphrase, translate, port, emulate, reimplement or reproduce
+    protected project material, including its documented implementation
+    logic, original visual design and expressive feature arrangement;
+(d) using the Work as inspiration, an example or a reference for generating
+    another implementation or product derived from protected material.
+
+The same restrictions apply if the resulting output does not repeat the
+original code verbatim. Human review, an AI-generated label or attribution
+does not supply permission. Humans and organisations operating systems are
+responsible for obtaining the relevant authorization; a system cannot grant
+permission on the Owner's behalf.
+
+The Owner expressly reserves rights for text and data mining and AI/ML uses
+to the extent such reservation is permitted and effective under applicable
+law. This notice is not a technical access control and does not claim to
+block crawlers, training systems or unauthorized copying automatically.
+See AI_POLICY.md for the matching plain-language notice.
+
+4. HOW TO ASK
+
+Open an issue addressed to @haldarsaurav at:
+https://github.com/haldarsaurav/desk_radar_esp32/issues
+
+If issues are unavailable, use a contact method the Owner publishes on:
+https://github.com/haldarsaurav
+
+State who you are; which files, version, visuals or features you want to
+reuse; your purpose; whether it is commercial; what you will distribute;
+and whether AI tools, models, datasets or retrieval systems are involved.
+Do not post passwords or other private information in a public request.
+
+Wait for an explicit written grant from the Owner that covers the proposed
+use. Silence, a request, a star, a fork, repository access, or approval from
+someone else is not permission. Permission is limited to its stated scope,
+recipient, purpose and conditions; permission for one activity does not
+imply permission for other activities or users. A written instruction from
+the Owner to an agent or collaborator authorizes only that instructed work.
+
+5. THIRD-PARTY MATERIAL AND NAMES
+
+This notice covers only rights held by the Owner. Dependencies, fonts,
+third-party contributions, APIs, aviation/weather/orbital data, trademarks and
+other third-party material remain subject to their own rights and terms.
+In particular, LovyanGFX, TGX, ArduinoJson, the Espressif Arduino core,
+ricmoo/QRCode, fonts and upstream data are not relicensed by this notice.
+Existing third-party notices remain in force. No ownership of their material,
+official aviation identities or public facts is claimed. No affiliation with
+or endorsement by airports, airlines or data providers is implied.
+
+6. APPLICABLE LAW AND PLATFORM RIGHTS
+
+Nothing here overrides mandatory rights or exceptions under applicable law,
+or withdraws rights already granted through applicable platform terms,
+including GitHub's rights and users' rights to view and fork public
+repositories through the service. Those platform rights do not themselves
+provide an unrestricted off-platform reuse licence from the Owner.
+
+This notice does not claim exclusive ownership of general ideas, facts,
+algorithms, methods, unprotectable functionality, independently created
+material or other subject matter that the law does not protect. The
+restrictions on inspiration, logic and features concern use of protected
+material and any enforceable conditions of a separate permission. They do
+not create new copyright or patent rights over abstract ideas. Any rights
+reservation for AI or text/data mining operates only where and to the
+extent the law recognises it and its required conditions are met.
+
+7. WARRANTY AND LIABILITY
+
+TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, THE WORK IS PROVIDED
+"AS IS" AND "AS AVAILABLE", WITHOUT EXPRESS OR IMPLIED WARRANTIES,
+INCLUDING MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, ACCURACY,
+AVAILABILITY OR NON-INFRINGEMENT. THE OWNER IS NOT LIABLE FOR CLAIMS,
+DAMAGES OR OTHER LIABILITY ARISING FROM THE WORK OR ITS USE EXCEPT TO THE
+EXTENT SUCH LIABILITY CANNOT LAWFULLY BE EXCLUDED OR LIMITED.
+
+8. INTERPRETATION
+
+This file is the controlling project notice; summaries do not expand its
+permissions. A separate written agreement controls for the use it expressly
+covers. An unenforceable provision does not expand permissions under the
+remaining provisions, which apply to the extent permitted by law. This
+version does not retroactively revoke permissions or rights validly granted
+for earlier material.
