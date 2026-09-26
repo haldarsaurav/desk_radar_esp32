@@ -86,7 +86,7 @@ These are host-rendered examples from the firmware drawing code, not photographs
 
 ## Visual look studies
 
-The sheet below includes the original look and eight alternate visual concepts: Glass Cockpit, Chart Paper, Amber Terminal, Swiss Minimal, Neon Night, Night Red, Steam Gauge and Departure Board. Each row shows radar, airport, nearest-aircraft and connection states. **These are design explorations, not selectable firmware themes**; the firmware renders above show the shipped visual language.
+The sheet below includes the original look and eight alternate visual concepts: Glass Cockpit, Chart Paper, Amber Terminal, Swiss Minimal, Neon Night, Night Red, Steam Gauge and Departure Board. Each row shows radar, airport, nearest-aircraft and connection states. This is a design contact sheet. The audited revision 2.1 source in the linked code repository has the original palette; the owner reports a newer build with **five themes selectable in its portal**. The five selectable looks will be identified here when that build's source or selector capture is available.
 
 <details>
 <summary>View all nine visual looks</summary>

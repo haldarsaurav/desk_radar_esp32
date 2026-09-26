@@ -61,7 +61,12 @@ ignored `build/rev21/` and `build/checks_munich/`, `build/checks_estonia/`.
 - Variant parity and both pin maps passed.
 - Real page code: 840 crash-regression draws per compiled variant completed; full-page fixtures
   exercised holding, circling, go-around and survey detection. Both site fixtures and credit screens rendered and inspected.
-- ESP32-S3 build: final run pending.
+- ESP32-S3 build: both variants compiled and linked on 26 September 2026 from clean copies
+  using their public `config.example.h`, Arduino CLI 1.5.1, ESP32 core 3.3.11,
+  LovyanGFX 1.2.28, ArduinoJson 7.4.3 and TGX 1.1.4. The README's FQBN and
+  `-Werror=format` setting were used. Munich used 1,457,387 bytes of program storage
+  (46% of its partition) and 60,124 bytes of static RAM (18%); Estonia used
+  1,457,791 bytes (46%) and 60,124 bytes (18%). Both exited successfully.
 - GitHub Actions: workflow added; a remote run is separate from the local evidence above.
 
 ## Physical closeout and known limits
