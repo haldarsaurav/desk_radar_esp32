@@ -1,6 +1,6 @@
 # MUC Desk Radar
 
-**Munich · Revision 2.1 · audit release: 26 September 2026**
+**Munich · Revision 2.1 base + unnumbered screen-look update · 26 September 2026**
 
 Designed and built by **Saurav Haldar**.
 
@@ -38,6 +38,7 @@ It answers the simple question that started the project—**“What is that plan
 
 | Revision | Date | Changes |
 | --- | --- | --- |
+| **Unnumbered look update** | 26 September 2026 | Original plus five selectable screen looks; portal picker, saved selection and 30 firmware render checks. |
 | **2.1** | 26 September 2026 | Fixed airport sets; startup, settings, network, stale-data and portal audit fixes; expanded regression coverage; full project credit and measured running cost. |
 | **2.0** | 25 September 2026 | Baseline snapshot, previously labelled product 2.3 / firmware 5.7.1. |
 
@@ -84,12 +85,23 @@ These are host-rendered examples from the firmware drawing code, not photographs
 
 ---
 
-## Visual look studies
+## Six selectable screen looks
 
-The sheet below includes the original look and eight alternate visual concepts: Glass Cockpit, Chart Paper, Amber Terminal, Swiss Minimal, Neon Night, Night Red, Steam Gauge and Departure Board. Each row shows radar, airport, nearest-aircraft and connection states. This is a design contact sheet. The audited revision 2.1 source in the linked code repository has the original palette; the owner reports a newer build with **five themes selectable in its portal**. The five selectable looks will be identified here when that build's source or selector capture is available.
+The current [firmware source](https://github.com/haldarsaurav/desk_radar_esp32_code) includes **Original plus five new looks**. Choose one under **Screen → Look** in the setup portal, then Save; the choice is stored and takes effect after the restart. Each look restyles the pages, connection and setup screens using the same aircraft and weather data. The images below come from the firmware's host renderer with synthetic data; they are not device photographs. Each linked strip covers the normal pages and special states.
+
+| Look | Firmware render | More render checks |
+|---|---|---|
+| Original | <a href="docs/renders/looks/0_Original_normal.png"><img src="docs/renders/looks/0_Original_normal.png" width="370" alt="Original look across Desk Radar pages"></a> | [Empty](docs/renders/looks/0_Original_empty.png) · [Stale](docs/renders/looks/0_Original_stale.png) · [Stress](docs/renders/looks/0_Original_stress.png) · [Metric](docs/renders/looks/0_Original_metric.png) |
+| Glass Cockpit | <a href="docs/renders/looks/1_Glass_Cockpit_normal.png"><img src="docs/renders/looks/1_Glass_Cockpit_normal.png" width="370" alt="Glass Cockpit look across Desk Radar pages"></a> | [Empty](docs/renders/looks/1_Glass_Cockpit_empty.png) · [Stale](docs/renders/looks/1_Glass_Cockpit_stale.png) · [Stress](docs/renders/looks/1_Glass_Cockpit_stress.png) · [Metric](docs/renders/looks/1_Glass_Cockpit_metric.png) |
+| Chart Paper | <a href="docs/renders/looks/2_Chart_Paper_normal.png"><img src="docs/renders/looks/2_Chart_Paper_normal.png" width="370" alt="Chart Paper look across Desk Radar pages"></a> | [Empty](docs/renders/looks/2_Chart_Paper_empty.png) · [Stale](docs/renders/looks/2_Chart_Paper_stale.png) · [Stress](docs/renders/looks/2_Chart_Paper_stress.png) · [Metric](docs/renders/looks/2_Chart_Paper_metric.png) |
+| Swiss Minimal | <a href="docs/renders/looks/3_Swiss_Minimal_normal.png"><img src="docs/renders/looks/3_Swiss_Minimal_normal.png" width="370" alt="Swiss Minimal look across Desk Radar pages"></a> | [Empty](docs/renders/looks/3_Swiss_Minimal_empty.png) · [Stale](docs/renders/looks/3_Swiss_Minimal_stale.png) · [Stress](docs/renders/looks/3_Swiss_Minimal_stress.png) · [Metric](docs/renders/looks/3_Swiss_Minimal_metric.png) |
+| Night Red | <a href="docs/renders/looks/4_Night_Red_normal.png"><img src="docs/renders/looks/4_Night_Red_normal.png" width="370" alt="Night Red look across Desk Radar pages"></a> | [Empty](docs/renders/looks/4_Night_Red_empty.png) · [Stale](docs/renders/looks/4_Night_Red_stale.png) · [Stress](docs/renders/looks/4_Night_Red_stress.png) · [Metric](docs/renders/looks/4_Night_Red_metric.png) |
+| Steam Gauge | <a href="docs/renders/looks/5_Steam_Gauge_normal.png"><img src="docs/renders/looks/5_Steam_Gauge_normal.png" width="370" alt="Steam Gauge look across Desk Radar pages"></a> | [Empty](docs/renders/looks/5_Steam_Gauge_empty.png) · [Stale](docs/renders/looks/5_Steam_Gauge_stale.png) · [Stress](docs/renders/looks/5_Steam_Gauge_stress.png) · [Metric](docs/renders/looks/5_Steam_Gauge_metric.png) |
+
+The earlier sheet below shows eight **design concepts** alongside Original. Amber Terminal, Neon Night and Departure Board remain concepts; they are not selectable firmware looks.
 
 <details>
-<summary>View all nine visual looks</summary>
+<summary>View the earlier nine-look concept sheet</summary>
 
 <img src="design_concepts/eight_looks_contact_sheet.png" width="800" alt="Contact sheet showing the original Desk Radar look and eight visual concepts across four screen states">
 
@@ -674,13 +686,15 @@ The captive setup page exposes the controls that genuinely affect the current ha
 
 ### Setup portal, shown from the firmware page
 
-These captures use the revision 2.1 portal HTML and synthetic settings. The Wi-Fi names and coordinates are examples; no device credentials appear here.
+These captures use the current portal HTML and synthetic settings. The Wi-Fi names and coordinates are examples; no device credentials appear here.
 
 | Wi-Fi | Home location |
 |---|---|
 | <img src="docs/renders/portal/wifi.png" width="390" alt="Desk Radar setup portal Wi-Fi step with a demo network"> | <img src="docs/renders/portal/location.png" width="390" alt="Desk Radar setup portal home-location step"> |
 | Radar scope | Page selection |
 | <img src="docs/renders/portal/scope.png" width="390" alt="Desk Radar setup portal radar range and scope controls"> | <img src="docs/renders/portal/pages.png" width="390" alt="Desk Radar setup portal page selection and transitions"> |
+
+<img src="docs/renders/portal/looks.png" width="390" alt="Desk Radar setup portal Look picker with Original and five new choices">
 
 | Setup area | What can be changed | Effect |
 |---|---|---|
@@ -698,7 +712,7 @@ These captures use the revision 2.1 portal HTML and synthetic settings. The Wi-F
 | Pages | Enable/disable, starting page | RADAR always remains enabled |
 | Auto-cycle | On/off and 4–120 second dwell | Automatic page advance |
 | Transition | Instant, fade, slide or iris | Animation between pages |
-| Screen | 0°, 90°, 180° or 270° rotation; color inversion | Physical orientation/panel correction |
+| Screen | Original or five new looks; 0°, 90°, 180° or 270° rotation; color inversion | Visual style and physical orientation/panel correction; Look applies after Save and restart |
 | Status LED | Enabled, alerts-only, brightness and supported board pin | Mirrors the health ring or stays dark until needed |
 | Aircraft refresh | 6–300 seconds | Live feed polling; 8 seconds is the recommended balance |
 | Fetch radius | 20–250 km | Base area requested before automatic widening |
