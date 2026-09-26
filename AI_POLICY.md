@@ -1,6 +1,6 @@
 # AI and automated-use policy
 
-**Prior written permission from Sam / @haldarsaurav is required.**
+**Prior written permission from Saurav Haldar / @haldarsaurav is required.**
 This is a proprietary project. Public visibility is not an invitation to reuse it.
 
 Without that permission, do not use protected project material:

@@ -1,0 +1,109 @@
+{
+  "body_CAD_checks": {
+    "body_valid_single_solid": true,
+    "same_overall_XMin": true,
+    "same_overall_YMin": true,
+    "same_overall_ZMin": true,
+    "same_overall_XMax": true,
+    "same_overall_YMax": true,
+    "same_overall_ZMax": true,
+    "board_and_lid_fitting_region_unchanged": true,
+    "display_seat_and_snaps_unchanged": true,
+    "body_clear_lid": true,
+    "body_clear_back": true,
+    "wire_passage_still_clear": true,
+    "body_mesh_watertight": true
+  },
+  "lid_CAD_checks": {
+    "lid_valid_single_solid": true,
+    "lid_clear_body": true,
+    "lid_clear_display_cap": true,
+    "lid_dimensions_unchanged_XMin": true,
+    "lid_dimensions_unchanged_YMin": true,
+    "lid_dimensions_unchanged_ZMin": true,
+    "lid_dimensions_unchanged_XMax": true,
+    "lid_dimensions_unchanged_YMax": true,
+    "lid_dimensions_unchanged_ZMax": true,
+    "added_wells_clear_body_during_lid_removal_1": true,
+    "added_wells_clear_body_during_lid_removal_3": true,
+    "added_wells_clear_body_during_lid_removal_6": true,
+    "added_wells_clear_body_during_lid_removal_12": true,
+    "RGB_component_proxy_clear": true,
+    "RGB_continuous_0_36mm_window": true,
+    "RGB_opening_under_window": true,
+    "LED1_component_proxy_clear": true,
+    "LED1_continuous_0_36mm_window": true,
+    "LED1_opening_under_window": true,
+    "LED2_component_proxy_clear": true,
+    "LED2_continuous_0_36mm_window": true,
+    "LED2_opening_under_window": true,
+    "LED3_component_proxy_clear": true,
+    "LED3_continuous_0_36mm_window": true,
+    "LED3_opening_under_window": true,
+    "button_60.8_original_tab_preserved_without_added_bump": true,
+    "button_65.2_original_tab_preserved_without_added_bump": true,
+    "snap_edges_preserved": true,
+    "watertight_print_mesh": true,
+    "fits_A1mini_flat_on_plate": true,
+    "body_and_lid_separated_on_one_plate": true
+  },
+  "unchanged_overall_mm": [
+    50.00000000000001,
+    98.0,
+    63.7827692806606
+  ],
+  "signature": {
+    "text": "designed by Saurav",
+    "height_mm": 4,
+    "width_mm": 40.90167682926828,
+    "depth_mm": 0.48
+  },
+  "LED_positions": "User-approved photo estimates",
+  "export": {
+    "PRINT_THIS_BODY_AND_LED_LID_A1mini_PLA.3mf": {
+      "parts": [
+        {
+          "name": "01_polished_body_larger_signature",
+          "facets": 37214,
+          "volume_mm3": 40583.529502227,
+          "bounds_mm": [
+            [
+              40.0,
+              35.0,
+              0.0
+            ],
+            [
+              90.0,
+              133.0,
+              63.7828
+            ]
+          ]
+        },
+        {
+          "name": "02_LED_diffuser_lid_no_extra_button_nubs",
+          "facets": 12268,
+          "volume_mm3": 5768.615399363386,
+          "bounds_mm": [
+            [
+              112.0,
+              50.0,
+              0.0
+            ],
+            [
+              145.3,
+              119.8,
+              7.3
+            ]
+          ]
+        }
+      ],
+      "watertight_oriented_meshes": true,
+      "separated_and_grounded_on_180mm_plate": true,
+      "settings_verified": true,
+      "slicer_preview_verified": false
+    },
+    "CAD_checks_passed": 31
+  },
+  "physical_fit_and_LED_transmission_tested": false,
+  "slicer_preview_verified": false
+}

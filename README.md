@@ -1,8 +1,10 @@
 # MUC Desk Radar
 
-**Munich · Product Rev 2.3 · firmware 5.7.1 · project closeout: 25 September 2026**
+**Munich · Revision 2.1 · audit release: 26 September 2026**
 
-> Copyright 2026 Sam / @haldarsaurav. All rights reserved. Permission is required
+Designed and built by **Saurav Haldar**.
+
+> Copyright 2026 Saurav Haldar / @haldarsaurav. All rights reserved. Permission is required
 > for reuse. See the [licence](LICENSE) and [permission guide](docs/PERMISSIONS.md).
 
 <p align="center">
@@ -17,6 +19,8 @@ MUC Desk Radar is a standalone Wi-Fi aircraft tracker built around an ESP32-S3 a
 
 There is no phone app, subscription, account or home server. Once Wi-Fi is configured, the device talks directly to public data sources and draws everything locally.
 
+**Real device photos:** reserved for Saurav's photos of the assembled radar in use. The images below are labeled firmware captures, setup-page captures or CAD renders; none is presented as a photograph of the finished device.
+
 It answers the simple question that started the project—**“What is that plane?”**—but it also answers more interesting ones:
 
 - Is that aircraft arriving, departing, holding, circling, surveying or going around?
@@ -29,6 +33,23 @@ It answers the simple question that started the project—**“What is that plan
 > This repository is the public, presentation-only home of the project: the complete README guide, firmware renders, wiring information and enclosure concepts. It intentionally contains **no firmware source and no private configuration**.
 
 ---
+
+## Revision history
+
+| Revision | Date | Changes |
+| --- | --- | --- |
+| **2.1** | 26 September 2026 | Fixed airport sets; startup, settings, network, stale-data and portal audit fixes; expanded regression coverage; full project credit and measured running cost. |
+| **2.0** | 25 September 2026 | Baseline snapshot, previously labelled product 2.3 / firmware 5.7.1. |
+
+The owner has reset release numbering to **2.0 → 2.1**. Historical rev5.x and rev2.2/2.3
+comments describe earlier development; current firmware, screen and boot labels are 2.1.
+
+## Money to run
+
+Measured running power: **0.6 W**. At that constant draw, leaving the radar on 24/7 uses
+**0.0144 kWh/day**, **0.432 kWh per 30 days**, or **5.256 kWh per 365-day year**.
+
+For a Freising example, [Freisinger Stadtwerke's MaxiStrom tariff](https://www.freisinger-stadtwerke.de/de/Energie-Wasser/Strom/Unsere-Tarife/) lists a gross energy price of **€0.3095/kWh** from 1 January 2026. At that rate, the radar adds about **€0.0045/day**, **€0.13 per 30 days**, or **€1.63/year** in electricity. This is the incremental energy charge on an existing connection; it excludes the tariff's standing charge. Your actual bill depends on your tariff and measured power over time.
 
 ## At a glance
 
@@ -49,7 +70,7 @@ It answers the simple question that started the project—**“What is that plan
 
 ## Real screens from the firmware
 
-These are host-rendered examples from the firmware drawing code, not photographs or live captures. The retained screen set predates the final 5.7.1 fixes; exact labels and units can differ from the current settings. The descriptions below explain the current Munich configuration.
+These are host-rendered examples from the firmware drawing code, not photographs or live captures. The screen set was regenerated from revision 2.1 using synthetic aircraft and weather fixtures; exact labels and units depend on settings. The descriptions below explain the current Munich configuration.
 
 | Live radar | Munich Airport | Traffic now |
 |---|---|---|
@@ -60,6 +81,38 @@ These are host-rendered examples from the firmware drawing code, not photographs
 | <img src="docs/renders/rev5/munich/weather.png" width="240" alt="Weather page"> | <img src="docs/renders/rev5/munich/patterns.png" width="240" alt="Flight patterns page"> | <img src="docs/renders/rev5/munich/trends.png" width="240" alt="Traffic trends page"> |
 | System health | About | Connection recovery |
 | <img src="docs/renders/rev5/munich/system.png" width="240" alt="System page"> | <img src="docs/renders/rev5/munich/about.png" width="240" alt="About page"> | <img src="docs/renders/rev5/munich/connection.png" width="240" alt="Connection recovery page"> |
+
+---
+
+## Visual look studies
+
+The sheet below includes the original look and eight alternate visual concepts: Glass Cockpit, Chart Paper, Amber Terminal, Swiss Minimal, Neon Night, Night Red, Steam Gauge and Departure Board. Each row shows radar, airport, nearest-aircraft and connection states. **These are design explorations, not selectable firmware themes**; the firmware renders above show the shipped visual language.
+
+<details>
+<summary>View all nine visual looks</summary>
+
+<img src="design_concepts/eight_looks_contact_sheet.png" width="800" alt="Contact sheet showing the original Desk Radar look and eight visual concepts across four screen states">
+
+</details>
+
+Earlier product shape and screen studies are archived below. They are concept images rather than photos of a built enclosure or additional firmware pages.
+
+<details>
+<summary>View enclosure and screen concept gallery</summary>
+
+| Direct stack | Tilted lid | Bridge pod |
+|---|---|---|
+| <img src="design_concepts/01_direct_stack.png" width="260" alt="Direct stack enclosure concept"> | <img src="design_concepts/02_tilted_lid_pod.png" width="260" alt="Tilted lid enclosure concept"> | <img src="design_concepts/03_bridge_pod.png" width="260" alt="Bridge pod enclosure concept"> |
+| Monolithic end cap | Twin fin | Selected stack study |
+| <img src="design_concepts/04_monolithic_end_cap.png" width="260" alt="Monolithic end cap enclosure concept"> | <img src="design_concepts/05_twin_fin_radar.png" width="260" alt="Twin fin enclosure concept"> | <img src="design_concepts/selected_direct_stack_snapfit_22deg.png" width="260" alt="Selected direct stack study"> |
+| Black and green product study | White upright product study | Radar screen study |
+| <img src="docs/renders/black_green_product_concept.png" width="260" alt="Black and green product concept"> | <img src="docs/renders/white_upright_usb_c_desk_concept.png" width="260" alt="White upright product concept"> | <img src="docs/renders/ui_page_radar.png" width="260" alt="Early radar screen concept"> |
+| Airport screen study | Closest aircraft study | Traffic statistics study |
+| <img src="docs/renders/ui_page_muc_airport.png" width="260" alt="Early Munich Airport screen concept"> | <img src="docs/renders/ui_page_closest_aircraft.png" width="260" alt="Early closest-aircraft screen concept"> | <img src="docs/renders/ui_page_stats.png" width="260" alt="Early traffic statistics screen concept"> |
+| System screen study | Round case reference | ESP32 case reference |
+| <img src="docs/renders/ui_page_system.png" width="260" alt="Early system screen concept"> | <img src="round_radar_case_reference.png" width="260" alt="Round radar case reference image"> | <img src="esp32_case_reference.png" width="260" alt="ESP32 board case reference image"> |
+
+</details>
 
 ---
 
@@ -241,7 +294,7 @@ CPA assumes constant course and constant groundspeed. It is a useful short-range
 <details>
 <summary><strong>Exact selection boundary</strong></summary>
 
-In the current firmware, NEAREST searches all airborne contacts retained from the shared fetch. Unlike COOLEST, TRAFFIC, PATTERNS and TRENDS, its selector is not clipped again to the activity radius. This detail matters mainly when the home and reference-airport circles are far apart.
+NEAREST selects the closest airborne contact retained from the shared fetch. Its detail page shows NO CONTACT when that aircraft is outside the activity radius; changing the drawn radar range does not hide an aircraft that is still inside that fixed activity area.
 
 </details>
 
@@ -619,6 +672,16 @@ ABOUT contains the owner credit, product revision and animation. It does not aff
 
 The captive setup page exposes the controls that genuinely affect the current hardware. Settings that could not work on this seven-pin display—backlight brightness, night dimming, runtime SPI speed and RGB-order changes—were deliberately removed.
 
+### Setup portal, shown from the firmware page
+
+These captures use the revision 2.1 portal HTML and synthetic settings. The Wi-Fi names and coordinates are examples; no device credentials appear here.
+
+| Wi-Fi | Home location |
+|---|---|
+| <img src="docs/renders/portal/wifi.png" width="390" alt="Desk Radar setup portal Wi-Fi step with a demo network"> | <img src="docs/renders/portal/location.png" width="390" alt="Desk Radar setup portal home-location step"> |
+| Radar scope | Page selection |
+| <img src="docs/renders/portal/scope.png" width="390" alt="Desk Radar setup portal radar range and scope controls"> | <img src="docs/renders/portal/pages.png" width="390" alt="Desk Radar setup portal page selection and transitions"> |
+
 | Setup area | What can be changed | Effect |
 |---|---|---|
 | Wi-Fi | Scanned/manual 2.4 GHz network, password, connection test, hostname | Moves the radar to a network without reflashing |
@@ -647,7 +710,7 @@ The captive setup page exposes the controls that genuinely affect the current ha
 | Personal | Owner name and 12/24-hour clock | ABOUT credit and radar clock |
 | Maintenance | Erase all settings | Returns the device to first-run Wi-Fi setup |
 
-This page documents the Munich configuration: select MUC as the reference field. Its runway geometry comes from the firmware’s airport data. Home coordinates remain independently configurable.
+This build is fixed to **Munich (MUC / EDDM) only**. No other airport can be selected. Its runway geometry comes from the firmware’s airport data. Home coordinates remain independently configurable.
 
 ### Button and automatic navigation
 
@@ -741,6 +804,24 @@ The physical build is intentionally small: two main electronic parts and one but
 - onboard BOOT button as MODE;
 - USB-C power.
 
+### 3D enclosure
+
+The [sleek radar enclosure files](enclosure/sleek-radar/) include an A1 mini PLA **3MF print plate** for the body and LED lid, a separate display-cap **STL**, and an editable **STEP** model. The final CAD renders show the front and rear:
+
+| Front CAD render | Rear CAD render |
+|---|---|
+| <img src="enclosure/sleek-radar/Final_front.png" width="390" alt="Front CAD render of the sleek 3D enclosure"> | <img src="enclosure/sleek-radar/Final_back.png" width="390" alt="Rear CAD render of the sleek 3D enclosure"> |
+
+The [CAD verification record](enclosure/sleek-radar/Final_verification.json) reports watertight print meshes and clearance checks. **Physical fit, LED light transmission and slicer preview have not been verified**; check those before committing to a full print. The STEP and meshes are provided for inspection and adjustment, especially if your ESP32-S3 or display module has different mechanical dimensions. The BOOT/MODE button sits on GPIO0, so the housing must not press it during power-up.
+
+### Real device photos — waiting for owner images
+
+| Finished device on a desk | Screen operating in use | Rear, side and cable view |
+|---|---|---|
+| *Saurav's photo to be added* | *Saurav's photo to be added* | *Saurav's photo to be added* |
+
+This row is intentionally text until real photographs are supplied. CAD renders and synthetic firmware captures above should not be mistaken for photographs.
+
 ### Seven display connections
 
 | ESP32-S3 | Display | Purpose |
@@ -807,7 +888,7 @@ The display module has no controllable backlight pin, so brightness and automati
 
 ## Reliability and final status
 
-Firmware 5.7.1 includes a corrected weather text-formatting bug, one-time font initialization
+The revision 2.0 baseline includes a corrected weather text-formatting bug, one-time font initialization
 with fallback, memory checks before optional network requests, bounded recovery attempts,
 validation of orbital data and protection against learning from stale observations.
 Optional information can wait when memory is tight; the main aircraft feed has priority.
@@ -818,10 +899,13 @@ With the FATFS partition used by the verified Arduino build, logs roll between t
 segments. Opening setup restarts the device, so the persisted log is useful for investigating
 the previous run. A missing log filesystem falls back to Serial logging.
 
-**Closeout checks, 25 September 2026:** all 15 standalone rule suites passed for the Munich
-firmware, along with pin checks and real-browser setup-page checks. Retained device-build
-records from 11 September show a successful ESP32-S3 compile and link with format errors
-treated as failures. Current source files were compared with those retained build inputs.
+**Revision 2.1 audit:** removes the other airports, handles startup allocation failures,
+validates saved settings, bounds slow HTTP replies, repairs timer and stale-data behavior,
+and makes Wi-Fi scan/test controls responsive through polling. Network names are rendered
+as text and failed saves no longer claim success. Corrupt learning data is rejected. Slow diagnostic-log clients cannot hold the network task
+indefinitely or leave the renderer waiting for the file-log lock.
+The [audit report](docs/AUDIT_REV2_1.md)
+records executed checks and the remaining physical verification.
 
 **Still a physical check:** no hardware was flashed during this publication. A long-running
 test with real Wi-Fi/TLS traffic and page transitions is still needed to confirm stability.
@@ -832,7 +916,9 @@ as a personal spotting display, never for navigation or operational decisions.
 ## Project files and rights
 
 This README is the complete public guide for the Munich desk radar. Screen images and
-enclosure concepts remain in the repository as visual references. Standalone manuals have
+enclosure concepts remain in the repository as visual references. The printable enclosure
+exports are in [enclosure/sleek-radar](enclosure/sleek-radar/). Photos of the real assembled
+device in use will be added when the owner supplies them. Standalone manuals have
 been retired so that explanations are maintained here.
 
 Firmware, regression checks and build instructions live in
@@ -840,7 +926,7 @@ Firmware, regression checks and build instructions live in
 Repository access depends on its permissions. This public showcase contains no firmware,
 private configuration or device credentials.
 
-Copyright 2026 Sam (haldarsaurav). All rights reserved. Read [LICENSE](LICENSE) and the
+Copyright 2026 Saurav Haldar (haldarsaurav). All rights reserved. Read [LICENSE](LICENSE) and the
 [permission guide](docs/PERMISSIONS.md) before reusing project material. Libraries, fonts,
 data and other third-party material keep their own terms. This is an independent personal
 project, with no affiliation with Munich Airport, airlines or feed providers.
